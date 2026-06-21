@@ -657,6 +657,8 @@ const TWSE_URL='https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL';   
 const TPEX_URL='https://www.tpex.org.tw/openapi/v1/tpex_mainboard_daily_close_quotes'; // 上櫃・前一交易日
 const MIS_URL='https://mis.twse.com.tw/stock/api/getStockInfo.jsp';            // 盤中・約5秒延遲
 function rocDate(s){if(!s||s.length<7)return'';const y=+s.slice(0,3)+1911,m=s.slice(3,5),d=s.slice(5,7);return `${y}/${m}/${d}`;}
+function fmtDate(s){if(!s)return'';return s.includes('-')?s.replace(/-/g,'/'):rocDate(s);} // TWSE/TPEx 為民國(1150618)，FinMind 為西元(2026-06-18)
+function finmindPriceUrl(code){const d=new Date(Date.now()-14*864e5).toISOString().slice(0,10);let u=`https://api.finmindtrade.com/api/v4/data?dataset=TaiwanStockPrice&data_id=${encodeURIComponent(code)}&start_date=${d}`;const tk=(state.settings.finmind||'').trim();if(tk)u+=`&token=${encodeURIComponent(tk)}`;return u;}
 function twNow(){return new Date(new Date().toLocaleString('en-US',{timeZone:'Asia/Taipei'}));}
 function marketOpen(){const t=twNow();const d=t.getDay();if(d===0||d===6)return false;const m=t.getHours()*60+t.getMinutes();return m>=540&&m<=810;} // 09:00–13:30
 async function fetchJson(url){
@@ -677,12 +679,23 @@ async function fetchLive(holdings){
   return n;
 }
 async function fetchEod(holdings){
-  const needTse=holdings.some(h=>(h.market||'tse')==='tse'),needOtc=holdings.some(h=>h.market==='otc');
+  const tse=holdings.filter(h=>(h.market||'tse')==='tse'),otc=holdings.filter(h=>h.market==='otc');
   const pm={};let asOf='';
-  if(needTse){(await fetchJson(TWSE_URL)||[]).forEach(r=>{pm[r.Code]={price:parseFloat(r.ClosingPrice),name:r.Name,date:r.Date};});}
-  if(needOtc){(await fetchJson(TPEX_URL)||[]).forEach(r=>{pm[r.SecuritiesCompanyCode]={price:parseFloat(r.Close),name:r.CompanyName,date:r.Date};});}
-  let n=0;holdings.forEach(h=>{const p=pm[h.code];if(p&&!isNaN(p.price)){state.prices[h.code]={price:p.price,name:p.name,t:Date.now(),live:false};asOf=p.date||asOf;n++;}});
-  return{n,asOf};
+  // 上市：TWSE OpenAPI（免 token、整批）。獨立 try，失敗不影響上櫃。
+  if(tse.length){try{const a=await fetchJson(TWSE_URL);if(Array.isArray(a))a.forEach(r=>{pm[r.Code]={price:parseFloat(r.ClosingPrice),name:r.Name,date:r.Date};});}catch(e){}}
+  // 上櫃：先試 TPEx OpenAPI（官方、整批）；連不到就用 FinMind TaiwanStockPrice 逐檔後援。
+  if(otc.length){
+    let okTpex=false;
+    try{const a=await fetchJson(TPEX_URL);if(Array.isArray(a)){a.forEach(r=>{pm[r.SecuritiesCompanyCode]={price:parseFloat(r.Close),name:r.CompanyName,date:r.Date};});okTpex=true;}}catch(e){}
+    if(!okTpex){
+      for(const h of otc){
+        try{const j=await fetchJson(finmindPriceUrl(h.code));const rows=(j&&j.data)||[];const last=rows[rows.length-1];
+          if(last&&last.close!=null&&!isNaN(parseFloat(last.close)))pm[h.code]={price:parseFloat(last.close),name:'',date:last.date};}catch(e){}
+      }
+    }
+  }
+  let n=0;holdings.forEach(h=>{const p=pm[h.code];if(p&&!isNaN(p.price)){state.prices[h.code]={price:p.price,name:p.name||(state.prices[h.code]||{}).name||'',t:Date.now(),live:false};asOf=p.date||asOf;n++;}});
+  return{n,asOf,total:holdings.length};
 }
 async function refreshPrices(silent){
   const{holdings}=buildHoldings();
@@ -695,9 +708,9 @@ async function refreshPrices(silent){
       $('#statusLine').textContent=`即時報價 ${twNow().toLocaleTimeString('zh-TW')} · ${n} 檔`;
       if(!silent)toast(`已更新 ${n} 檔即時報價`);
     }else{
-      const {n,asOf}=await fetchEod(holdings);save();render();
-      $('#statusLine').textContent=n?`收盤價 ${rocDate(asOf)} · ${n} 檔`:'查無收盤價，可手動輸入';
-      if(!silent)toast(n?`已更新 ${n} 檔收盤價`:'查無持股股價，點持股可手動輸入');
+      const {n,asOf,total}=await fetchEod(holdings);save();render();
+      $('#statusLine').textContent=n?`收盤價 ${fmtDate(asOf)} · ${n}/${total} 檔`:'查無收盤價，可手動輸入';
+      if(!silent)toast(n===0?'查無持股股價，點持股可手動輸入':(n<total?`已更新 ${n} 檔，${total-n} 檔查無（可點持股手動輸入）`:`已更新 ${n} 檔收盤價`));
     }
   }catch(e){
     $('#statusLine').textContent='紅漲綠跌';
