@@ -4,7 +4,7 @@
  *  - 圖示等靜態檔走「快取優先」：載入快、離線可用。
  *  - 發布新版時把下面的 VERSION 加一（v1 → v2），舊快取會在啟用時自動清除。
  */
-const VERSION = 'v1';
+const VERSION = 'v2';
 const CACHE = 'ledger-' + VERSION;
 const ASSETS = [
   './', './index.html', './manifest.webmanifest',
