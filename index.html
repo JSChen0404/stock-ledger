@@ -614,7 +614,7 @@ function txCard(t){
 function divCard(d){
   return `<div class="card"><div class="tx">
     <div class="tag div">息</div>
-    <div class="info"><div class="t1">${d.code} <span style="color:var(--muted);font-weight:400">${d.name||nameForCode(d.code)}</span>${d.auto?' <span class="chip" style="background:#FFF3E1;color:#C77D1A">自動</span>':''}</div>
+    <div class="info"><div class="t1">${d.code} <span style="color:var(--muted);font-weight:400">${d.name||nameForCode(d.code)}</span></div>
       <div class="t2">${d.date||''}${d.per?' · 每股 '+fmt(d.per,2):''}</div></div>
     <div class="amt"><div class="num" style="color:var(--gold)">+${money(d.amt)}</div></div>
     <button class="del" data-del="div" data-id="${d.id}">刪除</button>
@@ -638,7 +638,7 @@ document.querySelectorAll('nav button').forEach(b=>b.onclick=()=>{
   b.classList.add('active');
   document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
   $('#v-'+b.dataset.v).classList.add('active');
-  $('#fab').style.display=(b.dataset.v==='set')?'none':'grid';
+  $('#fab').style.display=(b.dataset.v==='set'||b.dataset.v==='div')?'none':'grid';  // 股利改為僅自動抓取，無手動新增
   window.scrollTo(0,0);
 });
 
@@ -723,7 +723,7 @@ $('#divSave').onclick=()=>{
   state.div.push({id:Date.now(),code,name:$('#dName').value.trim(),date,amt});
   save();render();$('#divModal').classList.remove('show');toast('股利已儲存（已內扣成本）');
 };
-$('#fab').onclick=()=>{const active=document.querySelector('nav button.active').dataset.v;active==='div'?openDiv():openTx();};
+$('#fab').onclick=()=>openTx();   // FAB 只用於新增交易；股利不再手動輸入
 document.querySelectorAll('.modal').forEach(m=>m.onclick=e=>{if(e.target===m)m.classList.remove('show');});
 
 /* ---------- prices: 盤中即時 + 收盤價，皆可經 Worker 代理 ---------- */
