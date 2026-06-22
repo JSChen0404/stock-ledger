@@ -461,6 +461,7 @@ function buildHoldings(){
     h.cost=h.gross-h.divCredit;               // 內扣後成本
     h.avg=h.cost/h.qty;                       // 內扣後均價
     const p=state.prices[h.code];
+    if(!h.name&&p&&p.name)h.name=p.name;       // 名稱留空時，用報價回填的官方名稱補上
     h.price=(p&&p.price)?p.price:null;
     h.chg=(p&&p.chg!=null&&!isNaN(p.chg))?p.chg:null;            // 今日漲跌（元）
     h.mv=h.price!=null?h.price*h.qty:null;
