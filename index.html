@@ -497,7 +497,7 @@ function render(){
 
   $('#totalMv').textContent=money(mv);
   $('#totalCost').textContent=money(cost);
-  const ce=$('#cellUpl');ce.innerHTML=(holdings.length?sign(upl)+money(upl)+' <span class="subpct">('+sign(uplPct)+fmt(uplPct,2)+'%)</span>':'—');ce.className='v num '+cls(upl);
+  const ce=$('#cellUpl');ce.innerHTML=(holdings.length?sign(upl)+money(upl)+' <span class="subpct">('+sign(uplPct)+fmt(uplPct,1)+'%)</span>':'—');ce.className='v num '+cls(upl);
   const cr=$('#cellReal');cr.textContent=sign(realized)+money(realized);cr.className='v num '+cls(realized);
   $('#cellDiv').textContent=money(div);
 
@@ -509,14 +509,14 @@ function render(){
   // 持股摘要面板（深色，券商風）
   $('#bCost').textContent=money(cost);
   const bu=$('#bUpl');bu.textContent=holdings.length?sign(upl)+money(upl):'—';bu.className='bv num '+cls(upl);
-  const bp=$('#bPct');bp.textContent=holdings.length?sign(uplPct)+fmt(uplPct,2)+'%':'—';bp.className='bv num '+cls(uplPct);
+  const bp=$('#bPct');bp.textContent=holdings.length?sign(uplPct)+fmt(uplPct,1)+'%':'—';bp.className='bv num '+cls(uplPct);
   // 今日損益 / 今日報酬率（對昨收）
   const hasChg=holdings.some(h=>h.chg!=null);
   const todayPL=holdings.reduce((s,h)=>s+(h.todayPL||0),0);
   const prevMv=holdings.reduce((s,h)=>s+((h.chg!=null&&h.price!=null)?(h.price-h.chg)*h.qty:0),0);
   const todayPct=prevMv>0?todayPL/prevMv*100:null;
   const bt=$('#bToday');bt.textContent=hasChg?sign(todayPL)+money(todayPL):'—';bt.className='bv num '+cls(hasChg?todayPL:0);
-  const btp=$('#bTodayPct');btp.textContent=(hasChg&&todayPct!=null)?sign(todayPct)+fmt(todayPct,2)+'%':'—';btp.className='bv num '+cls(hasChg?(todayPct||0):0);
+  const btp=$('#bTodayPct');btp.textContent=(hasChg&&todayPct!=null)?sign(todayPct)+fmt(todayPct,1)+'%':'—';btp.className='bv num '+cls(hasChg?(todayPct||0):0);
   // 股價更新時間 → 顯示在最上面標題列（已同步旁）
   const newest=Math.max(0,...holdings.map(h=>{const p=state.prices[h.code];return (p&&p.t)||0;}));
   const pt=$('#priceTime');if(pt)pt.textContent=newest?(' · '+new Date(newest).toLocaleTimeString('zh-TW',{hour:'2-digit',minute:'2-digit',hour12:false})):'';
@@ -565,7 +565,7 @@ function boardCard(h,totMv){
     <div class="brow-top">
       <div class="bnm"><span class="bcode">${h.code}</span>${h.name?`<span class="bname-i">${h.name}</span>`:''}</div>
       <div class="bprice num">${priced?fmt(h.price,2):'未報價'}</div>
-      <div class="bchg num ${h.chg!=null?cls(h.chg):''}">${h.chg!=null?sign(h.chg)+fmt(h.chg,2)+' ('+sign(h.chgPct)+fmt(h.chgPct,2)+'%)':''}</div>
+      <div class="bchg num ${h.chg!=null?cls(h.chg):''}">${h.chg!=null?sign(h.chg)+fmt(h.chg,2)+' ('+sign(h.chgPct)+fmt(h.chgPct,1)+'%)':''}</div>
     </div>
     <div class="bgrid">
       <div><div class="bk">庫存/市值${wt!=null?` (${fmt(wt,1)}%)`:''}</div><div class="bv num">${fmt(h.qty)}/${priced?money(h.mv):'—'}</div></div>
