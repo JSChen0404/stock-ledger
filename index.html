@@ -154,7 +154,7 @@ nav button .ic{font-size:22px;line-height:1;}
 
 /* 持股清單：滿版深色，列間以細線分隔 */
 #holdingsList{margin:0 -16px;background:#0E1116;}
-.brow{padding:13px 16px;cursor:pointer;border-bottom:1px solid #19212D;}
+.brow{padding:14px 16px;cursor:pointer;border-bottom:8px solid #07090C;}
 .brow:last-child{border-bottom:none;}
 .brow-top{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:10px;}
 .bnm{min-width:0;overflow:hidden;}
@@ -788,6 +788,7 @@ async function autoFetchDividends(){
   const exCash=new Set(state.div.map(d=>d.code+'@'+d.date));
   const exStockSet=new Set(state.tx.filter(t=>t.auto&&t.kind==='stockdiv').map(t=>t.code+'@'+t.date));
   let addCash=0,addStock=0,fail=0;
+  const _t=twNow();const today=`${_t.getFullYear()}-${String(_t.getMonth()+1).padStart(2,'0')}-${String(_t.getDate()).padStart(2,'0')}`;  // 只計算已除息（≤今天）的事件，不算未來
   for(const code of codes){
     const start=earliestDate(code)||'2015-01-01';
     const divUrl=ds=>{let u=`https://api.finmindtrade.com/api/v4/data?dataset=${ds}&data_id=${encodeURIComponent(code)}&start_date=${start}`;if(token)u+=`&token=${encodeURIComponent(token)}`;return u;};
@@ -808,7 +809,7 @@ async function autoFetchDividends(){
       rows.sort((a,b)=>((a.exS||a.exC)).localeCompare(b.exS||b.exC));
       rows.forEach(r=>{
         // 兩者都以「除權息日前」持股為基準（嚴格小於，當日新股不灌入同日基準）
-        if(r.exS.length>=8&&r.perS>0){
+        if(r.exS.length>=8&&r.perS>0&&r.exS<=today){
           const sh=sharesHeldBefore(code,r.exS);
           const ns=Math.floor(sh*r.perS/10);            // 每股配股元 ÷ 面額10 = 配股比例
           const k=code+'@'+r.exS;
@@ -817,7 +818,7 @@ async function autoFetchDividends(){
             exStockSet.add(k);addStock++;
           }
         }
-        if(r.exC.length>=8&&r.perC>0){
+        if(r.exC.length>=8&&r.perC>0&&r.exC<=today){
           const sh=sharesHeldBefore(code,r.exC);
           const k=code+'@'+r.exC;
           if(sh>0&&!exCash.has(k)){
