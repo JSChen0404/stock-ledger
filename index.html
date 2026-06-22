@@ -145,19 +145,21 @@ nav button .ic{font-size:22px;line-height:1;}
 /* 持股（深色卡片，券商風） */
 .bsum{background:#0E1116;border-radius:16px;padding:14px 16px;margin-bottom:12px;box-shadow:0 8px 22px rgba(15,20,30,.20);}
 .bsum-row{display:grid;grid-template-columns:1.25fr 1fr 1fr;gap:8px;}
+.bsum-row.two{margin-top:12px;padding-top:12px;border-top:1px solid #222C3A;}
 .bsum .bk{font-size:12px;color:#8893A2;font-weight:600;}
 .bsum .bv{font-size:20px;font-weight:800;color:#EEF0F3;margin-top:3px;font-variant-numeric:tabular-nums;letter-spacing:-.02em;white-space:nowrap;}
 .bsum .bv.up{color:var(--up);} .bsum .bv.down{color:var(--down);}
-.bsum-foot{display:flex;justify-content:space-between;align-items:center;margin-top:13px;padding-top:11px;border-top:1px solid #222C3A;font-size:12.5px;color:#727C8C;}
-.bsum-foot .btn{background:#1C2533;color:#E8EAED;box-shadow:none;border:1px solid #2A3546;}
 
 .brow{background:#0E1116;border-radius:16px;padding:13px 16px;margin-bottom:10px;cursor:pointer;box-shadow:0 6px 18px rgba(15,20,30,.18);}
 .brow-top{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;}
 .bnm{min-width:0;}
 .bcode{font-size:18px;font-weight:800;color:#EEF0F3;white-space:nowrap;}
 .bname-t{font-size:13px;color:#8893A2;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.bpwrap{text-align:right;flex:none;}
 .bprice{font-size:22px;font-weight:800;color:#EEF0F3;font-variant-numeric:tabular-nums;letter-spacing:-.02em;white-space:nowrap;}
 .brow.np .bprice{color:#5C6675;font-size:15px;font-weight:700;}
+.bchg{font-size:13px;font-weight:700;margin-top:3px;font-variant-numeric:tabular-nums;white-space:nowrap;color:#727C8C;}
+.bchg.up{color:var(--up);} .bchg.down{color:var(--down);}
 .chip-otc{display:inline-block;font-size:10.5px;font-weight:700;padding:1px 6px;border-radius:5px;margin-left:6px;vertical-align:middle;}
 .chip-otc.tse{background:#3A2225;color:#FF8A93;} .chip-otc.otc{background:#1F2C40;color:#7DB3FF;}
 .bgrid{display:grid;grid-template-columns:1.3fr 1fr 1fr;gap:8px;margin-top:12px;}
@@ -174,7 +176,7 @@ nav button .ic{font-size:22px;line-height:1;}
 <header>
   <div class="hrow">
     <div class="title">持股簿 · LEDGER</div>
-    <div class="hsync" id="syncLine"></div>
+    <div class="hsync"><span id="syncLine"></span><span id="priceTime"></span></div>
   </div>
   <div class="sub" id="statusLine"></div>
 </header>
@@ -199,17 +201,19 @@ nav button .ic{font-size:22px;line-height:1;}
 
   <!-- 持股 -->
   <section class="view" id="v-holdings">
-    <div class="section-h"><h2>持股</h2></div>
+    <div class="section-h" style="justify-content:flex-end"><button class="btn ghost sm" id="refreshBtn2">更新報價</button></div>
     <div class="bsum">
       <div class="bsum-row">
         <div><div class="bk">持有成本</div><div class="bv num" id="bCost">—</div></div>
         <div><div class="bk">庫存損益</div><div class="bv num" id="bUpl">—</div></div>
         <div><div class="bk">報酬率</div><div class="bv num" id="bPct">—</div></div>
       </div>
-      <div class="bsum-foot"><span id="bUpdate">股價更新 —</span><button class="btn sm" id="refreshBtn2">更新報價</button></div>
+      <div class="bsum-row two">
+        <div><div class="bk">今日損益</div><div class="bv num" id="bToday">—</div></div>
+        <div><div class="bk">今日報酬率</div><div class="bv num" id="bTodayPct">—</div></div>
+      </div>
     </div>
     <div id="holdingsList"></div>
-    <div class="hint">輕點任一檔可展開內扣均價、成本與設定股價。價格為前一交易日收盤；紅綠依你的部位損益。</div>
   </section>
 
   <!-- 交易 -->
@@ -399,7 +403,7 @@ async function cloudSave(){
     const body=JSON.stringify({tx:state.tx,div:state.div,prices:state.prices,updatedAt:state.updatedAt});
     const r=await fetch(apiUrl('/data')+'?k='+encodeURIComponent(state.settings.secret),{method:'PUT',headers:{'Content-Type':'application/json'},body});
     if(!r.ok)throw 0;
-    setSync('已同步 · '+new Date().toLocaleTimeString('zh-TW'));
+    setSync('已同步');
   }catch(e){setSync('離線（已存本機）');}
 }
 async function cloudLoad(){
@@ -455,9 +459,12 @@ function buildHoldings(){
     h.avg=h.cost/h.qty;                       // 內扣後均價
     const p=state.prices[h.code];
     h.price=(p&&p.price)?p.price:null;
+    h.chg=(p&&p.chg!=null&&!isNaN(p.chg))?p.chg:null;            // 今日漲跌（元）
     h.mv=h.price!=null?h.price*h.qty:null;
     h.upl=h.mv!=null?h.mv-h.cost:null;
     h.uplPct=h.upl!=null&&h.cost>0?h.upl/h.cost*100:null;
+    h.todayPL=(h.chg!=null)?h.chg*h.qty:null;                    // 今日損益
+    h.chgPct=(h.chg!=null&&h.price!=null&&(h.price-h.chg)!==0)?h.chg/(h.price-h.chg)*100:null; // 今日%（對昨收）
     return h;
   }).sort((a,b)=>(b.mv||0)-(a.mv||0));
   // 已賣光的標的，其股利併入已實現損益（不漏算）
@@ -497,8 +504,16 @@ function render(){
   $('#bCost').textContent=money(cost);
   const bu=$('#bUpl');bu.textContent=holdings.length?sign(upl)+money(upl):'—';bu.className='bv num '+cls(upl);
   const bp=$('#bPct');bp.textContent=holdings.length?sign(uplPct)+fmt(uplPct,2)+'%':'—';bp.className='bv num '+cls(uplPct);
+  // 今日損益 / 今日報酬率（對昨收）
+  const hasChg=holdings.some(h=>h.chg!=null);
+  const todayPL=holdings.reduce((s,h)=>s+(h.todayPL||0),0);
+  const prevMv=holdings.reduce((s,h)=>s+((h.chg!=null&&h.price!=null)?(h.price-h.chg)*h.qty:0),0);
+  const todayPct=prevMv>0?todayPL/prevMv*100:null;
+  const bt=$('#bToday');bt.textContent=hasChg?sign(todayPL)+money(todayPL):'—';bt.className='bv num '+cls(hasChg?todayPL:0);
+  const btp=$('#bTodayPct');btp.textContent=(hasChg&&todayPct!=null)?sign(todayPct)+fmt(todayPct,2)+'%':'—';btp.className='bv num '+cls(hasChg?(todayPct||0):0);
+  // 股價更新時間 → 顯示在最上面標題列（已同步旁）
   const newest=Math.max(0,...holdings.map(h=>{const p=state.prices[h.code];return (p&&p.t)||0;}));
-  $('#bUpdate').textContent='股價更新 '+(newest?new Date(newest).toLocaleTimeString('zh-TW',{hour:'2-digit',minute:'2-digit'}):'—');
+  const pt=$('#priceTime');if(pt)pt.textContent=newest?(' · '+new Date(newest).toLocaleTimeString('zh-TW',{hour:'2-digit',minute:'2-digit',hour12:false})):'';
 
   // 持股卡片
   const hl=$('#holdingsList');
@@ -546,7 +561,10 @@ function boardCard(h,totMv){
         <div class="bcode">${h.code}<span class="chip-otc ${h.market==='otc'?'otc':'tse'}">${h.market==='otc'?'櫃':'市'}</span></div>
         <div class="bname-t">${h.name||'—'}</div>
       </div>
-      <div class="bprice num">${priced?fmt(h.price,2):'未報價'}</div>
+      <div class="bpwrap">
+        <div class="bprice num">${priced?fmt(h.price,2):'未報價'}</div>
+        ${h.chg!=null?`<div class="bchg num ${cls(h.chg)}">${sign(h.chg)}${fmt(h.chg,2)} (${sign(h.chgPct)}${fmt(h.chgPct,2)}%)</div>`:''}
+      </div>
     </div>
     <div class="bgrid">
       <div><div class="bk">庫存/市值${wt!=null?` (${fmt(wt,1)}%)`:''}</div><div class="bv num">${fmt(h.qty)}/${priced?money(h.mv):'—'}</div></div>
@@ -705,7 +723,8 @@ async function fetchLive(holdings){
   const j=await fetchJson(url);let n=0;
   (j.msgArray||[]).forEach(m=>{
     let p=(m.z&&m.z!=='-')?parseFloat(m.z):((m.o&&m.o!=='-')?parseFloat(m.o):(m.y?parseFloat(m.y):NaN));
-    if(!isNaN(p)){state.prices[m.c]={price:p,name:m.n,t:Date.now(),live:true};n++;}
+    const y=parseFloat(m.y);const chg=(!isNaN(p)&&!isNaN(y))?p-y:null;   // 今日漲跌＝現價−昨收
+    if(!isNaN(p)){state.prices[m.c]={price:p,chg,name:m.n,t:Date.now(),live:true};n++;}
   });
   return n;
 }
@@ -713,19 +732,19 @@ async function fetchEod(holdings){
   const tse=holdings.filter(h=>(h.market||'tse')==='tse'),otc=holdings.filter(h=>h.market==='otc');
   const pm={};let asOf='';
   // 上市：TWSE OpenAPI（免 token、整批）。獨立 try，失敗不影響上櫃。
-  if(tse.length){try{const a=await fetchJson(TWSE_URL);if(Array.isArray(a))a.forEach(r=>{pm[r.Code]={price:parseFloat(r.ClosingPrice),name:r.Name,date:r.Date};});}catch(e){}}
+  if(tse.length){try{const a=await fetchJson(TWSE_URL);if(Array.isArray(a))a.forEach(r=>{const cg=parseFloat(r.Change);pm[r.Code]={price:parseFloat(r.ClosingPrice),chg:isNaN(cg)?null:cg,name:r.Name,date:r.Date};});}catch(e){}}
   // 上櫃：先試 TPEx OpenAPI（官方、整批）；連不到就用 FinMind TaiwanStockPrice 逐檔後援。
   if(otc.length){
     let okTpex=false;
-    try{const a=await fetchJson(TPEX_URL);if(Array.isArray(a)){a.forEach(r=>{pm[r.SecuritiesCompanyCode]={price:parseFloat(r.Close),name:r.CompanyName,date:r.Date};});okTpex=true;}}catch(e){}
+    try{const a=await fetchJson(TPEX_URL);if(Array.isArray(a)){a.forEach(r=>{const cg=parseFloat(r.Change);pm[r.SecuritiesCompanyCode]={price:parseFloat(r.Close),chg:isNaN(cg)?null:cg,name:r.CompanyName,date:r.Date};});okTpex=true;}}catch(e){}
     if(!okTpex){
       for(const h of otc){
-        try{const j=await fetchJson(finmindPriceUrl(h.code));const rows=(j&&j.data)||[];const last=rows[rows.length-1];
-          if(last&&last.close!=null&&!isNaN(parseFloat(last.close)))pm[h.code]={price:parseFloat(last.close),name:'',date:last.date};}catch(e){}
+        try{const j=await fetchJson(finmindPriceUrl(h.code));const rows=(j&&j.data)||[];const last=rows[rows.length-1],prev=rows[rows.length-2];
+          if(last&&last.close!=null&&!isNaN(parseFloat(last.close))){let cg=null;if(prev&&prev.close!=null)cg=parseFloat(last.close)-parseFloat(prev.close);else if(last.spread!=null&&!isNaN(parseFloat(last.spread)))cg=parseFloat(last.spread);pm[h.code]={price:parseFloat(last.close),chg:cg,name:'',date:last.date};}}catch(e){}
       }
     }
   }
-  let n=0;holdings.forEach(h=>{const p=pm[h.code];if(p&&!isNaN(p.price)){state.prices[h.code]={price:p.price,name:p.name||(state.prices[h.code]||{}).name||'',t:Date.now(),live:false};asOf=p.date||asOf;n++;}});
+  let n=0;holdings.forEach(h=>{const p=pm[h.code];if(p&&!isNaN(p.price)){state.prices[h.code]={price:p.price,chg:(p.chg!=null&&!isNaN(p.chg))?p.chg:null,name:p.name||(state.prices[h.code]||{}).name||'',t:Date.now(),live:false};asOf=p.date||asOf;n++;}});
   return{n,asOf,total:holdings.length};
 }
 async function refreshPrices(silent){
