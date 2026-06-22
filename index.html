@@ -142,23 +142,26 @@ nav button .ic{font-size:22px;line-height:1;}
 .set-item .l .t{font-size:15px;font-weight:700;color:var(--text);} .set-item .l .d{font-size:12px;color:var(--muted);margin-top:2px;max-width:210px;}
 .dot{width:8px;height:8px;border-radius:50%;display:inline-block;margin-right:6px;}
 
-/* 持股（深色卡片，券商風） */
-.bsum{background:#0E1116;border-radius:16px;padding:14px 16px;margin-bottom:12px;box-shadow:0 8px 22px rgba(15,20,30,.20);}
+/* 持股（滿版，券商風） */
+/* 摘要：淺色，與下方黑色清單區隔 */
+.bsum{background:var(--card);padding:15px 16px;margin:0 -16px;border-bottom:9px solid var(--bg);}
 .bsum-row{display:grid;grid-template-columns:1.25fr 1fr 1fr;gap:8px;}
-.bsum-row.two{margin-top:12px;padding-top:12px;border-top:1px solid #222C3A;}
-.bsum .bk{font-size:12px;color:#8893A2;font-weight:600;}
-.bsum .bv{font-size:20px;font-weight:800;color:#EEF0F3;margin-top:3px;font-variant-numeric:tabular-nums;letter-spacing:-.02em;white-space:nowrap;}
+.bsum-row.two{margin-top:14px;padding-top:14px;border-top:1px solid var(--line);}
+.bsum .bk{font-size:12px;color:var(--muted);font-weight:600;}
+.bsum .bv{font-size:21px;font-weight:800;color:var(--text);margin-top:3px;font-variant-numeric:tabular-nums;letter-spacing:-.02em;white-space:nowrap;}
 .bsum .bv.up{color:var(--up);} .bsum .bv.down{color:var(--down);}
 
-.brow{background:#0E1116;border-radius:16px;padding:13px 16px;margin-bottom:10px;cursor:pointer;box-shadow:0 6px 18px rgba(15,20,30,.18);}
-.brow-top{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;}
-.bnm{min-width:0;}
-.bcode{font-size:18px;font-weight:800;color:#EEF0F3;white-space:nowrap;}
-.bname-t{font-size:13px;color:#8893A2;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
-.bpwrap{text-align:right;flex:none;}
-.bprice{font-size:22px;font-weight:800;color:#EEF0F3;font-variant-numeric:tabular-nums;letter-spacing:-.02em;white-space:nowrap;}
+/* 持股清單：滿版深色，列間以細線分隔 */
+#holdingsList{margin:0 -16px;background:#0E1116;}
+.brow{padding:14px 16px;cursor:pointer;border-bottom:1px solid #19212D;}
+.brow:last-child{border-bottom:none;}
+.brow-top{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:10px;}
+.bnm{min-width:0;overflow:hidden;}
+.bcode{font-size:17px;font-weight:800;color:#EEF0F3;white-space:nowrap;}
+.bname-i{font-size:14px;color:#9AA4B2;font-weight:600;margin-left:6px;white-space:nowrap;}
+.bprice{font-size:21px;font-weight:800;color:#EEF0F3;text-align:center;font-variant-numeric:tabular-nums;letter-spacing:-.02em;white-space:nowrap;}
 .brow.np .bprice{color:#5C6675;font-size:15px;font-weight:700;}
-.bchg{font-size:13px;font-weight:700;margin-top:3px;font-variant-numeric:tabular-nums;white-space:nowrap;color:#727C8C;}
+.bchg{font-size:13px;font-weight:700;text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap;color:#727C8C;}
 .bchg.up{color:var(--up);} .bchg.down{color:var(--down);}
 .chip-otc{display:inline-block;font-size:10.5px;font-weight:700;padding:1px 6px;border-radius:5px;margin-left:6px;vertical-align:middle;}
 .chip-otc.tse{background:#3A2225;color:#FF8A93;} .chip-otc.otc{background:#1F2C40;color:#7DB3FF;}
@@ -178,7 +181,7 @@ nav button .ic{font-size:22px;line-height:1;}
     <div class="title">持股簿 · LEDGER</div>
     <div class="hsync"><span id="syncLine"></span><span id="priceTime"></span></div>
   </div>
-  <div class="sub" id="statusLine"></div>
+  <div class="sub" id="statusLine" hidden></div>
 </header>
 
 <main>
@@ -557,14 +560,9 @@ function boardCard(h,totMv){
   const wt=(priced&&totMv>0)?(h.mv/totMv*100):null;
   return `<div class="brow ${dir}${priced?'':' np'}" data-code="${h.code}">
     <div class="brow-top">
-      <div class="bnm">
-        <div class="bcode">${h.code}<span class="chip-otc ${h.market==='otc'?'otc':'tse'}">${h.market==='otc'?'櫃':'市'}</span></div>
-        <div class="bname-t">${h.name||'—'}</div>
-      </div>
-      <div class="bpwrap">
-        <div class="bprice num">${priced?fmt(h.price,2):'未報價'}</div>
-        ${h.chg!=null?`<div class="bchg num ${cls(h.chg)}">${sign(h.chg)}${fmt(h.chg,2)} (${sign(h.chgPct)}${fmt(h.chgPct,2)}%)</div>`:''}
-      </div>
+      <div class="bnm"><span class="bcode">${h.code}</span><span class="chip-otc ${h.market==='otc'?'otc':'tse'}">${h.market==='otc'?'櫃':'市'}</span>${h.name?`<span class="bname-i">${h.name}</span>`:''}</div>
+      <div class="bprice num">${priced?fmt(h.price,2):'未報價'}</div>
+      <div class="bchg num ${h.chg!=null?cls(h.chg):''}">${h.chg!=null?sign(h.chg)+fmt(h.chg,2)+' ('+sign(h.chgPct)+fmt(h.chgPct,2)+'%)':''}</div>
     </div>
     <div class="bgrid">
       <div><div class="bk">庫存/市值${wt!=null?` (${fmt(wt,1)}%)`:''}</div><div class="bv num">${fmt(h.qty)}/${priced?money(h.mv):'—'}</div></div>
