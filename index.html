@@ -790,17 +790,22 @@ async function autoFetchDividends(){
   let addCash=0,addStock=0,fail=0;
   for(const code of codes){
     const start=earliestDate(code)||'2015-01-01';
-    let url=`https://api.finmindtrade.com/api/v4/data?dataset=TaiwanStockDividend&data_id=${encodeURIComponent(code)}&start_date=${start}`;
-    if(token)url+=`&token=${encodeURIComponent(token)}`;
+    const divUrl=ds=>{let u=`https://api.finmindtrade.com/api/v4/data?dataset=${ds}&data_id=${encodeURIComponent(code)}&start_date=${start}`;if(token)u+=`&token=${encodeURIComponent(token)}`;return u;};
     try{
-      const j=await fetchJson(url);
-      const rows=((j&&j.data)||[]).map(r=>({
+      const j=await fetchJson(divUrl('TaiwanStockDividend'));
+      let rows=((j&&j.data)||[]).map(r=>({
         exC:r.CashExDividendTradingDate||'',
         perC:(parseFloat(r.CashEarningsDistribution)||0)+(parseFloat(r.CashStatutorySurplus)||0),
         exS:r.StockExDividendTradingDate||'',
         perS:(parseFloat(r.StockEarningsDistribution)||0)+(parseFloat(r.StockStatutorySurplus)||0)
-      })).filter(r=>(r.exC.length>=8&&r.perC>0)||(r.exS.length>=8&&r.perS>0))
-        .sort((a,b)=>((a.exS||a.exC)).localeCompare(b.exS||b.exC));
+      })).filter(r=>(r.exC.length>=8&&r.perC>0)||(r.exS.length>=8&&r.perS>0));
+      if(!rows.length){
+        // 債券/ETF 配息不在 TaiwanStockDividend，改抓 TaiwanStockDividendResult：date=除息日、stock_and_cache_dividend=每股配息（債券ETF皆現金）
+        const j2=await fetchJson(divUrl('TaiwanStockDividendResult'));
+        rows=((j2&&j2.data)||[]).map(r=>({exC:r.date||'',perC:parseFloat(r.stock_and_cache_dividend)||0,exS:'',perS:0}))
+          .filter(r=>r.exC.length>=8&&r.perC>0);
+      }
+      rows.sort((a,b)=>((a.exS||a.exC)).localeCompare(b.exS||b.exC));
       rows.forEach(r=>{
         // 兩者都以「除權息日前」持股為基準（嚴格小於，當日新股不灌入同日基準）
         if(r.exS.length>=8&&r.perS>0){
