@@ -174,6 +174,7 @@ nav button .ic{font-size:22px;line-height:1;}
 .bdetail b{color:#E8EAED;font-weight:700;}
 .bdetail b.up{color:var(--up);} .bdetail b.down{color:var(--down);}
 .brow.open .bdetail{display:flex;}
+input[readonly]{opacity:.65;cursor:not-allowed;}
 .bdetail .btn{margin-left:auto;background:#1C2533;color:#E8EAED;box-shadow:none;border:1px solid #2A3546;}
 </style>
 </head>
@@ -313,7 +314,7 @@ nav button .ic{font-size:22px;line-height:1;}
     </div>
     <div class="two">
       <div class="field"><label>股票代號</label><input id="fCode" placeholder="2330" inputmode="numeric"></div>
-      <div class="field"><label>名稱（選填）</label><input id="fName" placeholder="台積電"></div>
+      <div class="field"><label>名稱（自動帶入）</label><input id="fName" placeholder="輸入代號後自動帶入" readonly></div>
     </div>
     <div class="two">
       <div class="field"><label>市場</label><select id="fMarket"><option value="tse">上市</option><option value="otc">上櫃</option></select></div>
@@ -581,11 +582,18 @@ function boardCard(h,totMv){
     </div>
   </div>`;
 }
+function nameForCode(code){            // 自動帶入股票名稱：報價名稱 → 同代號交易/股利已存的名稱
+  if(!code)return'';
+  const p=state.prices[code];if(p&&p.name)return p.name;
+  const t=state.tx.find(x=>x.code===code&&x.name);if(t)return t.name;
+  const d=state.div.find(x=>x.code===code&&x.name);if(d)return d.name;
+  return'';
+}
 function txCard(t){
   if(t.kind==='stockdiv'){
     return `<div class="card"><div class="tx">
       <div class="tag div">配</div>
-      <div class="info"><div class="t1">${t.code} <span style="color:var(--muted);font-weight:400">配股</span> <span class="chip" style="background:#FFF3E1;color:#C77D1A">自動</span></div>
+      <div class="info"><div class="t1">${t.code} <span style="color:var(--muted);font-weight:400">${nameForCode(t.code)} 配股</span> <span class="chip" style="background:#FFF3E1;color:#C77D1A">自動</span></div>
         <div class="t2">${t.date||''} · 每股配 ${fmt(t.per,2)} 元</div></div>
       <div class="amt"><div class="num" style="color:var(--gold)">+${fmt(t.qty)} 股</div>
         <div class="a2 num">0 成本</div></div>
@@ -596,7 +604,7 @@ function txCard(t){
   const net=t.side==='buy'?gross+(t.fee||0):gross-(t.fee||0)-(t.tax||0);
   return `<div class="card"><div class="tx">
     <div class="tag ${t.side}">${t.side==='buy'?'買':'賣'}</div>
-    <div class="info"><div class="t1">${t.code} <span style="color:var(--muted);font-weight:400">${t.name||''}</span></div>
+    <div class="info"><div class="t1">${t.code} <span style="color:var(--muted);font-weight:400">${t.name||nameForCode(t.code)}</span></div>
       <div class="t2">${t.date||''} · ${fmt(t.qty)} 股 @ ${fmt(t.price,2)}</div></div>
     <div class="amt"><div class="num ${t.side==='buy'?'up':'down'}">${t.side==='buy'?'-':'+'}${money(net)}</div>
       <div class="a2 num">費 ${fmt(t.fee||0)}${t.side==='sell'?' 稅 '+fmt(t.tax||0):''}</div></div>
@@ -606,7 +614,7 @@ function txCard(t){
 function divCard(d){
   return `<div class="card"><div class="tx">
     <div class="tag div">息</div>
-    <div class="info"><div class="t1">${d.code} <span style="color:var(--muted);font-weight:400">${d.name||''}</span>${d.auto?' <span class="chip" style="background:#FFF3E1;color:#C77D1A">自動</span>':''}</div>
+    <div class="info"><div class="t1">${d.code} <span style="color:var(--muted);font-weight:400">${d.name||nameForCode(d.code)}</span>${d.auto?' <span class="chip" style="background:#FFF3E1;color:#C77D1A">自動</span>':''}</div>
       <div class="t2">${d.date||''}${d.per?' · 每股 '+fmt(d.per,2):''}</div></div>
     <div class="amt"><div class="num" style="color:var(--gold)">+${money(d.amt)}</div></div>
     <button class="del" data-del="div" data-id="${d.id}">刪除</button>
@@ -661,6 +669,21 @@ function recalcTx(){
   $('#txCalc').innerHTML=txt;
 }
 ['fQty','fPrice'].forEach(i=>$('#'+i).addEventListener('input',recalcTx));
+async function autoFillName(){               // 依代號自動帶入名稱（唯讀欄）
+  const code=$('#fCode').value.trim();
+  const local=nameForCode(code);
+  $('#fName').value=local;
+  if(code&&!local&&cloudOn()){               // 本地查不到 → 用 mis 線上查
+    try{
+      const mk=$('#fMarket').value==='otc'?'otc':'tse';
+      const j=await fetchJson(`${MIS_URL}?ex_ch=${mk}_${code}.tw&json=1&_=${Date.now()}`);
+      const m=(j.msgArray||[])[0];
+      if(m&&m.n&&$('#fCode').value.trim()===code)$('#fName').value=m.n;
+    }catch(e){}
+  }
+}
+$('#fCode').addEventListener('input',autoFillName);
+$('#fMarket').addEventListener('change',autoFillName);
 $('#txSave').onclick=()=>{
   const code=$('#fCode').value.trim(),q=parseFloat($('#fQty').value),p=parseFloat($('#fPrice').value);
   if(!code||!q||!p){toast('請填代號、股數、價格');return;}
