@@ -55,13 +55,14 @@ main{padding:0 16px 20px;max-width:560px;margin:-20px auto 0;position:relative;z
 /* Summary hero */
 .hero{background:var(--card);border:1px solid var(--line);border-radius:20px;padding:18px;margin:0 0 14px;box-shadow:0 10px 28px rgba(20,32,60,.10);}
 .hero .lbl{font-size:13px;color:var(--muted);letter-spacing:1px;}
-.hero .big{font-size:39px;font-weight:800;color:var(--text);margin:3px 0 2px;}
+.hero .big{font-size:18.5px;font-weight:700;color:var(--text);margin:3px 0 2px;}
 .hero .pl{font-size:17px;font-weight:700;display:flex;align-items:baseline;gap:8px;margin-top:4px;}
 .hero .pl .pct{font-size:14px;opacity:.9;}
 .hero-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:14px;}
 .hero-grid .cell{border-radius:13px;padding:11px 13px;}
 .hero-grid .cell .k{font-size:12.5px;color:var(--muted);}
 .hero-grid .cell .v{font-size:18.5px;font-weight:700;margin-top:3px;}
+.hero-grid .cell .subpct{font-size:13px;font-weight:600;opacity:.85;}
 .tint-slate{background:#EFF2F7;} .tint-pl{background:#F0F3F8;}
 .tint-blue{background:#E9F1FE;} .tint-gold{background:#FFF3E1;}
 
@@ -165,7 +166,7 @@ nav button .ic{font-size:22px;line-height:1;}
 .bchg.up{color:var(--up);} .bchg.down{color:var(--down);}
 .chip-otc{display:inline-block;font-size:10.5px;font-weight:700;padding:1px 6px;border-radius:5px;margin-left:6px;vertical-align:middle;}
 .chip-otc.tse{background:#3A2225;color:#FF8A93;} .chip-otc.otc{background:#1F2C40;color:#7DB3FF;}
-.bgrid{display:grid;grid-template-columns:1.3fr 1fr 1fr;gap:8px;margin-top:12px;}
+.bgrid{display:grid;grid-template-columns:1.3fr 1fr;gap:10px 8px;margin-top:12px;}
 .bgrid .bk{font-size:11.5px;color:#727C8C;font-weight:600;}
 .bgrid .bv{font-size:16px;font-weight:800;color:#C9CFD8;margin-top:3px;font-variant-numeric:tabular-nums;letter-spacing:-.02em;white-space:nowrap;}
 .bgrid .bv.up{color:var(--up);} .bgrid .bv.down{color:var(--down);}
@@ -190,7 +191,6 @@ nav button .ic{font-size:22px;line-height:1;}
     <div class="hero">
       <div class="lbl">總市值 (TWD)</div>
       <div class="big num" id="totalMv">—</div>
-      <div class="pl num" id="totalUpl"><span></span><span class="pct"></span></div>
       <div class="hero-grid">
         <div class="cell tint-slate"><div class="k">內扣後成本</div><div class="v num" id="totalCost">—</div></div>
         <div class="cell tint-pl"><div class="k">未實現損益</div><div class="v num" id="cellUpl">—</div></div>
@@ -467,6 +467,10 @@ function buildHoldings(){
     h.mv=h.price!=null?h.price*h.qty:null;
     h.upl=h.mv!=null?h.mv-h.cost:null;
     h.uplPct=h.upl!=null&&h.cost>0?h.upl/h.cost*100:null;
+    const fd=earliestDate(h.code);                               // 年化報酬率：以最早買進日起算的 CAGR
+    const days=fd?(Date.now()-new Date(fd).getTime())/86400000:null;
+    h.years=(days!=null&&days>0)?days/365.25:null;
+    h.annPct=(h.uplPct!=null&&h.years&&days>=14)?(Math.pow(Math.max(0,1+h.uplPct/100),1/h.years)-1)*100:null;
     h.todayPL=(h.chg!=null)?h.chg*h.qty:null;                    // 今日損益
     h.chgPct=(h.chg!=null&&h.price!=null&&(h.price-h.chg)!==0)?h.chg/(h.price-h.chg)*100:null; // 今日%（對昨收）
     return h;
@@ -491,11 +495,8 @@ function render(){
   const div=totalDiv();
 
   $('#totalMv').textContent=money(mv);
-  const u=$('#totalUpl');u.className='pl num '+cls(upl);
-  u.querySelector('span').textContent=(holdings.length?sign(upl)+money(upl):'—')+' 未實現';
-  u.querySelector('.pct').textContent=holdings.length?`(${sign(uplPct)}${fmt(uplPct,2)}%)`:'';
   $('#totalCost').textContent=money(cost);
-  const ce=$('#cellUpl');ce.textContent=(holdings.length?sign(upl)+money(upl):'—');ce.className='v num '+cls(upl);
+  const ce=$('#cellUpl');ce.innerHTML=(holdings.length?sign(upl)+money(upl)+' <span class="subpct">('+sign(uplPct)+fmt(uplPct,2)+'%)</span>':'—');ce.className='v num '+cls(upl);
   const cr=$('#cellReal');cr.textContent=sign(realized)+money(realized);cr.className='v num '+cls(realized);
   $('#cellDiv').textContent=money(div);
 
@@ -561,7 +562,7 @@ function boardCard(h,totMv){
   const wt=(priced&&totMv>0)?(h.mv/totMv*100):null;
   return `<div class="brow ${dir}${priced?'':' np'}" data-code="${h.code}">
     <div class="brow-top">
-      <div class="bnm"><span class="bcode">${h.code}</span><span class="chip-otc ${h.market==='otc'?'otc':'tse'}">${h.market==='otc'?'櫃':'市'}</span>${h.name?`<span class="bname-i">${h.name}</span>`:''}</div>
+      <div class="bnm"><span class="bcode">${h.code}</span>${h.name?`<span class="bname-i">${h.name}</span>`:''}</div>
       <div class="bprice num">${priced?fmt(h.price,2):'未報價'}</div>
       <div class="bchg num ${h.chg!=null?cls(h.chg):''}">${h.chg!=null?sign(h.chg)+fmt(h.chg,2)+' ('+sign(h.chgPct)+fmt(h.chgPct,2)+'%)':''}</div>
     </div>
@@ -569,6 +570,7 @@ function boardCard(h,totMv){
       <div><div class="bk">庫存/市值${wt!=null?` (${fmt(wt,1)}%)`:''}</div><div class="bv num">${fmt(h.qty)}/${priced?money(h.mv):'—'}</div></div>
       <div><div class="bk">損益試算</div><div class="bv num ${dir}">${priced?sign(h.upl)+money(h.upl):'—'}</div></div>
       <div><div class="bk">報酬率</div><div class="bv num ${dir}">${priced?sign(h.uplPct)+fmt(h.uplPct,1)+'%':'—'}</div></div>
+      <div><div class="bk">年化報酬率</div><div class="bv num ${h.annPct!=null?cls(h.annPct):''}">${(priced&&h.annPct!=null)?sign(h.annPct)+fmt(h.annPct,1)+'%':'—'}</div></div>
     </div>
     <div class="bdetail">
       <span>內扣均價 <b>${fmt(h.avg,2)}</b></span>
