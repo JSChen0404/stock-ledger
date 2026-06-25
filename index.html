@@ -66,8 +66,6 @@ main{padding:0 16px 20px;max-width:560px;margin:-20px auto 0;position:relative;z
 .hero-grid .cell .subpct{font-size:13px;font-weight:600;opacity:.85;}
 .tint-slate{background:#EFF2F7;} .tint-pl{background:#F0F3F8;}
 .tint-blue{background:#E9F1FE;} .tint-gold{background:#FFF3E1;}
-.tint-total{grid-column:1/-1;background:#EDF1F8;border:1px solid var(--line);}
-.tint-total .v{font-size:21px;}
 
 /* Cards / list */
 .card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:14px 16px;margin-bottom:10px;box-shadow:0 2px 10px rgba(20,32,60,.05);}
@@ -196,7 +194,6 @@ input[readonly]{opacity:.65;cursor:not-allowed;}
     <div class="hero">
       <div class="hero-top"><div class="lbl">總市值 (TWD)</div><div class="big num" id="totalMv">—</div></div>
       <div class="hero-grid">
-        <div class="cell tint-total"><div class="k">總損益（市值＋已實現 · 股利已含）</div><div class="v num" id="cellTotal">—</div></div>
         <div class="cell tint-pl"><div class="k">未實現損益</div><div class="v num" id="cellUpl">—</div></div>
         <div class="cell tint-blue"><div class="k">已實現損益</div><div class="v num" id="cellReal">—</div></div>
         <div class="cell tint-slate"><div class="k">內扣後成本</div><div class="v num" id="totalCost">—</div></div>
@@ -444,27 +441,40 @@ function calcTax(amt){return Math.round(amt*0.003);}
 
 /* ---------- portfolio computation (weighted average cost) ---------- */
 function buildHoldings(){
-  const sorted=[...state.tx].sort((a,b)=>(a.date||'').localeCompare(b.date||'')||a.id-b.id);
+  // 把交易與股利合併成時間序事件一起跑：收到股利當下就壓低持股成本，
+  // 之後賣出時的均價已是「內扣股利後」的成本，已實現損益自然含股利。
+  // 同日股利排在交易之前（除息日賣方仍領得到、當日新買不灌入，且 amt 本就以 sharesHeldBefore 嚴格<除息日算好）。
+  const evs=[];
+  state.tx.forEach(t=>evs.push({d:t.date||'',ord:1,id:t.id,tx:t}));
+  state.div.forEach(x=>evs.push({d:x.date||'',ord:0,id:x.id,div:x}));
+  evs.sort((a,b)=>a.d.localeCompare(b.d)||(a.ord-b.ord)||(a.id-b.id));
   const map={};let realized=0;
-  for(const t of sorted){
-    const c=t.code;if(!map[c])map[c]={code:c,name:t.name||'',market:t.market||'tse',qty:0,cost:0};
+  for(const e of evs){
+    if(e.div){                                 // 現金股利
+      const x=e.div,h=map[x.code];
+      if(h&&h.qty>0)h.cost-=(x.amt||0);          // 內扣：壓低持股成本（之後賣出/未實現都受益）
+      else realized+=(x.amt||0);                 // 已無持股 → 視為已實現現金收入（不漏算）
+      continue;
+    }
+    const t=e.tx,c=t.code;
+    if(!map[c])map[c]={code:c,name:t.name||'',market:t.market||'tse',qty:0,cost:0,rawCost:0};
     const h=map[c];if(t.name)h.name=t.name;if(t.market)h.market=t.market;
     const gross=t.qty*t.price;
-    if(t.side==='buy'){h.qty+=t.qty;h.cost+=gross+(t.fee||0);}
-    else{ // sell
+    if(t.side==='buy'){h.qty+=t.qty;h.cost+=gross+(t.fee||0);h.rawCost+=gross+(t.fee||0);}
+    else{ // sell：用內扣後均價算已實現；raw 另記以便顯示原始成本與已內扣股利
       const avg=h.qty>0?h.cost/h.qty:0;
+      const rawAvg=h.qty>0?h.rawCost/h.qty:0;
       const sellQty=Math.min(t.qty,h.qty);
       const proceeds=gross-(t.fee||0)-(t.tax||0);
       realized+=proceeds-avg*sellQty;
-      h.cost-=avg*sellQty;h.qty-=sellQty;if(h.qty<=0){h.qty=0;h.cost=0;}
+      h.cost-=avg*sellQty;h.rawCost-=rawAvg*sellQty;h.qty-=sellQty;
+      if(h.qty<=0){h.qty=0;h.cost=0;h.rawCost=0;}
     }
   }
-  const divByCode={};state.div.forEach(d=>{divByCode[d.code]=(divByCode[d.code]||0)+(d.amt||0);});
   const holdings=Object.values(map).filter(h=>h.qty>0).map(h=>{
-    h.gross=h.cost;                          // 買入原始成本
-    h.divCredit=divByCode[h.code]||0;         // 已領股利（內扣）
-    h.cost=h.gross-h.divCredit;               // 內扣後成本
-    h.avg=h.cost/h.qty;                       // 內扣後均價
+    h.gross=h.rawCost;                         // 買入原始成本（剩餘股，未扣股利）
+    h.divCredit=Math.max(0,h.rawCost-h.cost);  // 已內扣到剩餘股的股利（raw 與內扣後之差）
+    h.avg=h.cost/h.qty;                        // 內扣後均價（h.cost 已是內扣後）
     const p=state.prices[h.code];
     if(!h.name&&p&&p.name)h.name=p.name;       // 名稱留空時，用報價回填的官方名稱補上
     h.price=(p&&p.price)?p.price:null;
@@ -480,9 +490,6 @@ function buildHoldings(){
     h.chgPct=(h.chg!=null&&h.price!=null&&(h.price-h.chg)!==0)?h.chg/(h.price-h.chg)*100:null; // 今日%（對昨收）
     return h;
   }).sort((a,b)=>(b.mv||0)-(a.mv||0));
-  // 已賣光的標的，其股利併入已實現損益（不漏算）
-  const held=new Set(holdings.map(h=>h.code));
-  for(const c in divByCode){if(!held.has(c))realized+=divByCode[c];}
   return{holdings,realized};
 }
 function totalDiv(){return state.div.reduce((s,d)=>s+(d.amt||0),0);}
@@ -504,10 +511,6 @@ function render(){
   const ce=$('#cellUpl');ce.innerHTML=(holdings.length?sign(upl)+money(upl)+' <span class="subpct">('+sign(uplPct)+fmt(uplPct,1)+'%)</span>':'—');ce.className='v num '+cls(upl);
   const cr=$('#cellReal');cr.textContent=sign(realized)+money(realized);cr.className='v num '+cls(realized);
   $('#cellDiv').textContent=money(div);
-  // 總損益＝未實現＋已實現（股利已內含於未實現的內扣成本與已實現的賣光歸戶，故不再外加）
-  const total=upl+realized;const ct=$('#cellTotal');
-  ct.innerHTML=holdings.length?sign(total)+money(total):(realized?sign(realized)+money(realized):'—');
-  ct.className='v num '+cls(holdings.length?total:realized);
 
   // overview holdings (compact, top items)
   const ov=$('#ovHoldings');
