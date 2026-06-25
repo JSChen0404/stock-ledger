@@ -23,8 +23,10 @@
   --r:16px;
 }
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
-html,body{margin:0;padding:0;}
+html{margin:0;padding:0;height:100%;}
 body{
+  margin:0;
+  height:100%;box-sizing:border-box;overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior-y:none;
   background:var(--bg); color:var(--text);
   font-family:-apple-system,BlinkMacSystemFont,"PingFang TC","Noto Sans TC","Microsoft JhengHei",sans-serif;
   font-size:16px; line-height:1.45; -webkit-font-smoothing:antialiased;
