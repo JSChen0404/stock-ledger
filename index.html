@@ -232,7 +232,8 @@ input[readonly]{opacity:.65;cursor:not-allowed;}
   <!-- 股利 -->
   <section class="view" id="v-div">
     <div class="section-h"><h2>股利紀錄</h2><button class="btn sm" id="autoDivBtn">⟳ 自動抓取</button></div>
-    <div class="hint" style="margin:0 4px 8px">依交易紀錄向 FinMind 抓各檔除息資料，用「除息日前持股 × 每股現金股利」自動建立並內扣成本。也可用右下＋手動新增。</div>
+    <div class="hint" style="margin:0 4px 8px">依交易紀錄向 FinMind 抓各檔除息資料，用「除息日前持股 × 每股現金股利」自動建立並內扣成本。</div>
+    <div class="field" style="margin:0 4px 10px"><input id="divFilter" placeholder="🔎 輸入股票代號篩選，例如 00679B" inputmode="text" autocapitalize="characters" autocomplete="off" style="text-transform:uppercase"></div>
     <div id="divList"></div>
   </section>
 
@@ -544,10 +545,19 @@ function render(){
   const tl=$('#txList');const txs=[...state.tx].sort((a,b)=>(b.date||'').localeCompare(a.date||'')||b.id-a.id);
   tl.innerHTML=txs.length?txs.map(txCard).join(''):`<div class="empty"><div class="big">⇅</div>還沒有交易紀錄</div>`;
 
-  // dividends
-  const dl=$('#divList');const ds=[...state.div].sort((a,b)=>(b.date||'').localeCompare(a.date||'')||b.id-a.id);
-  dl.innerHTML=ds.length?ds.map(divCard).join(''):`<div class="empty"><div class="big">$</div>還沒有股利紀錄</div>`;
+  // dividends（可依股票代號篩選）
+  renderDivList();
 
+  bindDeletes();
+}
+let divFilter='';
+function renderDivList(){
+  const dl=$('#divList');if(!dl)return;
+  const f=divFilter.trim().toUpperCase();
+  let ds=[...state.div].sort((a,b)=>(b.date||'').localeCompare(a.date||'')||b.id-a.id);
+  if(f)ds=ds.filter(d=>(d.code||'').toUpperCase().includes(f));
+  dl.innerHTML=ds.length?ds.map(divCard).join('')
+    :`<div class="empty"><div class="big">$</div>${state.div.length?'查無符合「'+f+'」的股利紀錄':'還沒有股利紀錄'}</div>`;
   bindDeletes();
 }
 
@@ -650,7 +660,7 @@ document.querySelectorAll('nav button').forEach(b=>b.onclick=()=>{
   b.classList.add('active');
   document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
   $('#v-'+b.dataset.v).classList.add('active');
-  $('#fab').style.display=(b.dataset.v==='set'||b.dataset.v==='div')?'none':'grid';  // 股利改為僅自動抓取，無手動新增
+  $('#fab').style.display=(b.dataset.v==='tx')?'grid':'none';  // ＋只用於新增交易，僅交易頁顯示
   window.scrollTo(0,0);
 });
 
@@ -921,7 +931,11 @@ $('#confirmNo').onclick=()=>{$('#confirmModal').classList.remove('show');_confir
   sync();
 })();
 
+/* ---------- 股利頁：股票代號篩選 ---------- */
+$('#divFilter').addEventListener('input',e=>{divFilter=e.target.value||'';renderDivList();});
+
 /* ---------- init ---------- */
+$('#fab').style.display='none';        // 預設在總覽頁，＋只在交易頁顯示
 load();loadSettings();render();
 (async function(){
   await cloudLoad();                                   // 先抓雲端最新資料（雲端為準）
