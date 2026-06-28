@@ -197,7 +197,7 @@ input[readonly]{opacity:.65;cursor:not-allowed;}
       <div class="hero-top"><div class="lbl">總市值 (TWD)</div><div class="big num" id="totalMv">—</div></div>
       <div class="hero-grid">
         <div class="cell tint-pl"><div class="k">未實現損益</div><div class="v num" id="cellUpl">—</div></div>
-        <div class="cell tint-blue"><div class="k">已實現損益</div><div class="v num" id="cellReal">—</div></div>
+        <div class="cell tint-blue" id="realCell" style="cursor:pointer"><div class="k">已實現損益 ›</div><div class="v num" id="cellReal">—</div></div>
         <div class="cell tint-slate"><div class="k">內扣後成本</div><div class="v num" id="totalCost">—</div></div>
         <div class="cell tint-gold"><div class="k">累積股利 · 已內扣</div><div class="v num" id="cellDiv">—</div></div>
       </div>
@@ -226,6 +226,7 @@ input[readonly]{opacity:.65;cursor:not-allowed;}
   <!-- 交易 -->
   <section class="view" id="v-tx">
     <div class="section-h"><h2>交易紀錄</h2></div>
+    <div class="field" style="margin:0 4px 10px"><input id="txFilter" placeholder="🔎 輸入股票代號篩選，例如 00679B" inputmode="text" autocapitalize="characters" autocomplete="off" style="text-transform:uppercase"></div>
     <div id="txList"></div>
   </section>
 
@@ -379,6 +380,17 @@ input[readonly]{opacity:.65;cursor:not-allowed;}
   </div>
 </div>
 
+<!-- 已實現明細 modal -->
+<div class="modal" id="realizedModal">
+  <div class="sheet">
+    <div class="grab"></div>
+    <h3>已實現損益明細</h3>
+    <div id="realizedSum" class="calcline">—</div>
+    <div id="realizedItems"></div>
+    <button class="btn full ghost" id="realizedClose" style="margin-top:14px">關閉</button>
+  </div>
+</div>
+
 <div class="toast" id="toast"></div>
 
 <script>
@@ -451,12 +463,13 @@ function buildHoldings(){
   state.tx.forEach(t=>evs.push({d:t.date||'',ord:1,id:t.id,tx:t}));
   state.div.forEach(x=>evs.push({d:x.date||'',ord:0,id:x.id,div:x}));
   evs.sort((a,b)=>a.d.localeCompare(b.d)||(a.ord-b.ord)||(a.id-b.id));
-  const map={};let realized=0;
+  const map={};let realized=0;const realizedList=[];
   for(const e of evs){
     if(e.div){                                 // 現金股利
       const x=e.div,h=map[x.code];
       if(h&&h.qty>0)h.cost-=(x.amt||0);          // 內扣：壓低持股成本（之後賣出/未實現都受益）
-      else realized+=(x.amt||0);                 // 已無持股 → 視為已實現現金收入（不漏算）
+      else{realized+=(x.amt||0);                 // 已無持股 → 視為已實現現金收入（不漏算）
+        realizedList.push({date:x.date||'',code:x.code,name:x.name||'',type:'div',amt:x.amt||0,pl:x.amt||0});}
       continue;
     }
     const t=e.tx,c=t.code;
@@ -469,7 +482,9 @@ function buildHoldings(){
       const rawAvg=h.qty>0?h.rawCost/h.qty:0;
       const sellQty=Math.min(t.qty,h.qty);
       const proceeds=gross-(t.fee||0)-(t.tax||0);
-      realized+=proceeds-avg*sellQty;
+      const pl=proceeds-avg*sellQty;
+      realized+=pl;
+      realizedList.push({date:t.date||'',code:c,name:t.name||'',type:'sell',qty:sellQty,price:t.price,proceeds,cost:avg*sellQty,pl});
       h.cost-=avg*sellQty;h.rawCost-=rawAvg*sellQty;h.qty-=sellQty;
       if(h.qty<=0){h.qty=0;h.cost=0;h.rawCost=0;}
     }
@@ -493,7 +508,7 @@ function buildHoldings(){
     h.chgPct=(h.chg!=null&&h.price!=null&&(h.price-h.chg)!==0)?h.chg/(h.price-h.chg)*100:null; // 今日%（對昨收）
     return h;
   }).sort((a,b)=>(b.mv||0)-(a.mv||0));
-  return{holdings,realized};
+  return{holdings,realized,realizedList};
 }
 function totalDiv(){return state.div.reduce((s,d)=>s+(d.amt||0),0);}
 // 依交易紀錄推算「某日（除息日）之前」持有的股數
@@ -501,7 +516,8 @@ function sharesHeldBefore(code,exDate){let q=0;state.tx.forEach(t=>{if(t.code===
 
 /* ---------- render ---------- */
 function render(){
-  const{holdings,realized}=buildHoldings();
+  const{holdings,realized,realizedList}=buildHoldings();
+  lastRealized=realizedList;
   const cost=holdings.reduce((s,h)=>s+h.cost,0);
   const priced=holdings.filter(h=>h.mv!=null);
   const mv=priced.reduce((s,h)=>s+h.mv,0)+holdings.filter(h=>h.mv==null).reduce((s,h)=>s+h.cost,0);
@@ -541,9 +557,8 @@ function render(){
   hl.innerHTML=holdings.length?holdings.map(h=>boardCard(h,totMv)).join(''):`<div style="padding:26px 14px;text-align:center;color:#717B8B;font-size:14px">尚無持股</div>`;
   bindHoldingToggles();
 
-  // transactions
-  const tl=$('#txList');const txs=[...state.tx].sort((a,b)=>(b.date||'').localeCompare(a.date||'')||b.id-a.id);
-  tl.innerHTML=txs.length?txs.map(txCard).join(''):`<div class="empty"><div class="big">⇅</div>還沒有交易紀錄</div>`;
+  // transactions（可依股票代號篩選）
+  renderTxList();
 
   // dividends（可依股票代號篩選）
   renderDivList();
@@ -558,6 +573,43 @@ function renderDivList(){
   if(f)ds=ds.filter(d=>(d.code||'').toUpperCase().includes(f));
   dl.innerHTML=ds.length?ds.map(divCard).join('')
     :`<div class="empty"><div class="big">$</div>${state.div.length?'查無符合「'+f+'」的股利紀錄':'還沒有股利紀錄'}</div>`;
+  bindDeletes();
+}
+let lastRealized=[];
+function realizedCard(r){
+  const nm=r.name||nameForCode(r.code);
+  if(r.type==='div'){
+    return `<div class="card"><div class="tx">
+      <div class="tag div">息</div>
+      <div class="info"><div class="t1">${r.code} <span style="color:var(--muted);font-weight:400">${nm} 配息</span></div>
+        <div class="t2">${r.date||''} · 賣光後入帳</div></div>
+      <div class="amt"><div class="num ${cls(r.pl)}">${sign(r.pl)}${money(r.pl)}</div></div>
+    </div></div>`;
+  }
+  return `<div class="card"><div class="tx">
+    <div class="tag sell">賣</div>
+    <div class="info"><div class="t1">${r.code} <span style="color:var(--muted);font-weight:400">${nm}</span></div>
+      <div class="t2">${r.date||''} · ${fmt(r.qty)} 股 @ ${fmt(r.price,2)}</div></div>
+    <div class="amt"><div class="num ${cls(r.pl)}">${sign(r.pl)}${money(r.pl)}</div>
+      <div class="a2 num">淨額 ${money(r.proceeds)}</div></div>
+  </div></div>`;
+}
+function openRealizedModal(){
+  const list=[...lastRealized].sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+  const total=list.reduce((s,r)=>s+r.pl,0);
+  $('#realizedSum').innerHTML=`共 <b>${list.length}</b> 筆 · 已實現合計 <b class="${cls(total)}">${sign(total)}${money(total)}</b>`;
+  $('#realizedItems').innerHTML=list.length?list.map(realizedCard).join('')
+    :`<div class="empty"><div class="big">↺</div>還沒有已實現紀錄（賣出或賣光後配息才會產生）</div>`;
+  $('#realizedModal').classList.add('show');
+}
+let txFilter='';
+function renderTxList(){
+  const tl=$('#txList');if(!tl)return;
+  const f=txFilter.trim().toUpperCase();
+  let txs=[...state.tx].sort((a,b)=>(b.date||'').localeCompare(a.date||'')||b.id-a.id);
+  if(f)txs=txs.filter(t=>(t.code||'').toUpperCase().includes(f));
+  tl.innerHTML=txs.length?txs.map(txCard).join('')
+    :`<div class="empty"><div class="big">⇅</div>${state.tx.length?'查無符合「'+f+'」的交易紀錄':'還沒有交易紀錄'}</div>`;
   bindDeletes();
 }
 
@@ -931,8 +983,14 @@ $('#confirmNo').onclick=()=>{$('#confirmModal').classList.remove('show');_confir
   sync();
 })();
 
-/* ---------- 股利頁：股票代號篩選 ---------- */
+/* ---------- 交易/股利頁：股票代號篩選 ---------- */
 $('#divFilter').addEventListener('input',e=>{divFilter=e.target.value||'';renderDivList();});
+$('#txFilter').addEventListener('input',e=>{txFilter=e.target.value||'';renderTxList();});
+
+/* ---------- 總覽：已實現損益 → 點開明細 ---------- */
+$('#realCell').onclick=openRealizedModal;
+$('#realizedClose').onclick=()=>$('#realizedModal').classList.remove('show');
+$('#realizedModal').onclick=e=>{if(e.target.id==='realizedModal')$('#realizedModal').classList.remove('show');};
 
 /* ---------- init ---------- */
 $('#fab').style.display='none';        // 預設在總覽頁，＋只在交易頁顯示
