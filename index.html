@@ -174,6 +174,8 @@ nav button .ic{font-size:22px;line-height:1;}
 .bgrid .bk{font-size:11.5px;color:#727C8C;font-weight:600;}
 .bgrid .bv{font-size:16px;font-weight:800;color:#C9CFD8;margin-top:3px;font-variant-numeric:tabular-nums;letter-spacing:-.02em;white-space:nowrap;}
 .bgrid .bv.up{color:var(--up);} .bgrid .bv.down{color:var(--down);}
+.bgrid .bsub{font-size:11.5px;font-weight:700;color:#727C8C;margin-top:3px;font-variant-numeric:tabular-nums;letter-spacing:-.02em;white-space:nowrap;}
+.bgrid .bsub.up{color:var(--up);} .bgrid .bsub.down{color:var(--down);}
 .bdetail{display:none;margin-top:12px;padding-top:11px;border-top:1px dashed #232C3A;color:#9AA4B2;font-size:13px;gap:8px 16px;flex-wrap:wrap;align-items:center;}
 .bdetail b{color:#E8EAED;font-weight:700;}
 .bdetail b.up{color:var(--up);} .bdetail b.down{color:var(--down);}
@@ -454,6 +456,40 @@ function toast(m){const t=$('#toast');t.textContent=m;t.classList.add('show');cl
 function feeRate(){return 0.001425*(parseFloat(state.settings.fee)||1);}
 function calcFee(amt){return Math.max(1,Math.round(amt*feeRate()));}
 function calcTax(amt){return Math.round(amt*0.003);}
+function todayStr(){const d=twNow();return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;}
+
+/* ---------- 年化報酬率（XIRR，貨幣加權） ---------- */
+// 用實際現金流求解：買進為負、賣出／現金股利為正，最後補上今天的市值。
+// 不用「總報酬率開 n 次方」是因為分批買進時，晚進場的錢會被當成從第一天就投入而高估年化。
+const _dayNum=s=>Date.parse(String(s).slice(0,10)+'T00:00:00Z');
+function xirr(flows){
+  if(!flows||flows.length<2)return null;
+  const t0=_dayNum(flows[0].d);if(isNaN(t0))return null;
+  const ts=[],vs=[];
+  for(const f of flows){const t=_dayNum(f.d);if(isNaN(t))return null;ts.push((t-t0)/86400000/365.25);vs.push(f.v);}
+  if(!vs.some(v=>v>0)||!vs.some(v=>v<0))return null;             // 需一正一負才有解
+  const npv=r=>vs.reduce((s,v,i)=>s+v/Math.pow(1+r,ts[i]),0);
+  let lo=-0.999999,hi=1,flo=npv(lo),fhi=npv(hi);
+  for(let i=0;i<60&&flo*fhi>0;i++){hi=hi*2+1;fhi=npv(hi);}       // 往上擴張，找出變號區間
+  if(!isFinite(flo)||!isFinite(fhi)||flo*fhi>0)return null;
+  for(let i=0;i<200;i++){const mid=(lo+hi)/2,fm=npv(mid);        // 二分法：比牛頓法慢但不會發散
+    if(!isFinite(fm))return null;
+    if(flo*fm<=0){hi=mid;fhi=fm;}else{lo=mid;flo=fm;}}
+  const r=(lo+hi)/2;
+  return isFinite(r)?r*100:null;
+}
+// 某檔股票的完整現金流（含已賣出與已領股利），依日期排序
+function cashFlows(code){
+  const fl=[];
+  state.tx.forEach(t=>{
+    if(t.code!==code||!t.date)return;
+    const g=t.qty*t.price;
+    const v=t.side==='buy'?-(g+(t.fee||0)):(g-(t.fee||0)-(t.tax||0));   // 配股 price=0 → v=0，會被濾掉
+    if(v)fl.push({d:t.date,v});
+  });
+  state.div.forEach(x=>{if(x.code===code&&x.date&&x.amt)fl.push({d:x.date,v:x.amt});});
+  return fl.sort((a,b)=>a.d.localeCompare(b.d));
+}
 
 /* ---------- portfolio computation (weighted average cost) ---------- */
 function buildHoldings(){
@@ -490,6 +526,7 @@ function buildHoldings(){
       if(h.qty<=0){h.qty=0;h.cost=0;h.rawCost=0;}
     }
   }
+  const today=todayStr();
   const holdings=Object.values(map).filter(h=>h.qty>0).map(h=>{
     h.gross=h.rawCost;                         // 買入原始成本（剩餘股，未扣股利）
     h.divCredit=Math.max(0,h.rawCost-h.cost);  // 已內扣到剩餘股的股利（raw 與內扣後之差）
@@ -501,10 +538,11 @@ function buildHoldings(){
     h.mv=h.price!=null?h.price*h.qty:null;
     h.upl=h.mv!=null?h.mv-h.cost:null;
     h.uplPct=h.upl!=null&&h.cost>0?h.upl/h.cost*100:null;
-    const fd=earliestDate(h.code);                               // 年化報酬率：以最早買進日起算的 CAGR
-    const days=fd?(Date.now()-new Date(fd).getTime())/86400000:null;
-    h.years=(days!=null&&days>0)?days/365.25:null;
-    h.annPct=(h.uplPct!=null&&h.years&&days>=14)?(Math.pow(Math.max(0,1+h.uplPct/100),1/h.years)-1)*100:null;
+    // 年化報酬率：XIRR（貨幣加權），現金流＝歷來買賣與現金股利 ＋ 今天的市值
+    const fl=cashFlows(h.code);
+    h.firstDate=fl.length?fl[0].d:null;
+    h.days=h.firstDate?Math.round((_dayNum(today)-_dayNum(h.firstDate))/86400000):null;
+    h.annPct=(h.mv!=null&&fl.length&&h.days!=null&&h.days>=30)?xirr(fl.concat([{d:today,v:h.mv}])):null;
     h.todayPL=(h.chg!=null)?h.chg*h.qty:null;                    // 今日損益
     h.chgPct=(h.chg!=null&&h.price!=null&&(h.price-h.chg)!==0)?h.chg/(h.price-h.chg)*100:null; // 今日%（對昨收）
     return h;
@@ -618,6 +656,8 @@ function holdingCard(h){
       <div><div class="k">內扣後均價</div><div class="v num">${h.cost>0?fmt(h.avg,2):'—'}</div></div>
       <div><div class="k">現價</div><div class="v num">${priced?fmt(h.price,2):'—'}</div></div>
       <div><div class="k">內扣後成本</div><div class="v num">${money(h.cost)}</div></div>
+      <div><div class="k">年化報酬率</div><div class="v num ${h.annPct!=null?cls(h.annPct):''}">${h.annPct!=null?sign(h.annPct)+fmt(h.annPct,1)+'%':'—'}</div></div>
+      <div><div class="k">持有天數</div><div class="v num">${h.days!=null?fmt(h.days):'—'}</div></div>
       ${h.divCredit?`<div><div class="k">已領股利</div><div class="v num" style="color:var(--gold)">−${money(h.divCredit)}</div></div><div><div class="k">原始成本</div><div class="v num">${money(h.gross)}</div></div>`:''}
       <div style="grid-column:1/-1;margin-top:2px"><button class="btn ghost sm" data-price="${h.code}">✎ 手動設定股價</button></div>
     </div>
@@ -636,10 +676,11 @@ function boardCard(h,totMv){
     <div class="bgrid">
       <div><div class="bk">庫存/市值${wt!=null?` (${fmt(wt,1)}%)`:''}</div><div class="bv num">${fmt(h.qty)}/${priced?money(h.mv):'—'}</div></div>
       <div><div class="bk">損益試算</div><div class="bv num ${dir}">${priced?sign(h.upl)+money(h.upl):'—'}</div></div>
-      <div><div class="bk">報酬率</div><div class="bv num ${dir}">${priced?sign(h.uplPct)+fmt(h.uplPct,1)+'%':'—'}</div></div>
+      <div><div class="bk">報酬率</div><div class="bv num ${dir}">${priced?sign(h.uplPct)+fmt(h.uplPct,1)+'%':'—'}</div>
+        <div class="bsub num ${h.annPct!=null?cls(h.annPct):''}">年化 ${h.annPct!=null?sign(h.annPct)+fmt(h.annPct,1)+'%':'—'}</div></div>
     </div>
     <div class="bdetail">
-      <span>年化報酬率 <b class="${h.annPct!=null?cls(h.annPct):''}">${(priced&&h.annPct!=null)?sign(h.annPct)+fmt(h.annPct,1)+'%':'—'}</b></span>
+      <span>年化起算 <b>${h.firstDate?fmtDate(h.firstDate):'—'}</b> · 持有 <b>${h.days!=null?fmt(h.days):'—'}</b> 天${(priced&&h.annPct==null&&h.days!=null&&h.days<30)?'（未滿 30 天不計年化）':''}</span>
       <span>內扣均價 <b>${h.cost>0?fmt(h.avg,2):'—'}</b></span>
       <span>內扣成本 <b>${money(h.cost)}</b></span>
       ${h.divCredit?`<span>已領股利 <b style="color:var(--gold)">${money(h.divCredit)}</b></span>`:''}
@@ -876,7 +917,7 @@ async function autoFetchDividends(){
   const exCash=new Set(state.div.map(d=>d.code+'@'+d.date));
   const exStockSet=new Set(state.tx.filter(t=>t.auto&&t.kind==='stockdiv').map(t=>t.code+'@'+t.date));
   let addCash=0,addStock=0,fail=0;
-  const _t=twNow();const today=`${_t.getFullYear()}-${String(_t.getMonth()+1).padStart(2,'0')}-${String(_t.getDate()).padStart(2,'0')}`;  // 只計算已除息（≤今天）的事件，不算未來
+  const today=todayStr();  // 只計算已除息（≤今天）的事件，不算未來
   for(const code of codes){
     const start=earliestDate(code)||'2015-01-01';
     const divUrl=ds=>{let u=`https://api.finmindtrade.com/api/v4/data?dataset=${ds}&data_id=${encodeURIComponent(code)}&start_date=${start}`;if(token)u+=`&token=${encodeURIComponent(token)}`;return u;};
