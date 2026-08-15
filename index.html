@@ -174,8 +174,6 @@ nav button .ic{font-size:22px;line-height:1;}
 .bgrid .bk{font-size:11.5px;color:#727C8C;font-weight:600;}
 .bgrid .bv{font-size:16px;font-weight:800;color:#C9CFD8;margin-top:3px;font-variant-numeric:tabular-nums;letter-spacing:-.02em;white-space:nowrap;}
 .bgrid .bv.up{color:var(--up);} .bgrid .bv.down{color:var(--down);}
-.bgrid .bsub{font-size:11.5px;font-weight:700;color:#727C8C;margin-top:3px;font-variant-numeric:tabular-nums;letter-spacing:-.02em;white-space:nowrap;}
-.bgrid .bsub.up{color:var(--up);} .bgrid .bsub.down{color:var(--down);}
 .bdetail{display:none;margin-top:12px;padding-top:11px;border-top:1px dashed #232C3A;color:#9AA4B2;font-size:13px;gap:8px 16px;flex-wrap:wrap;align-items:center;}
 .bdetail b{color:#E8EAED;font-weight:700;}
 .bdetail b.up{color:var(--up);} .bdetail b.down{color:var(--down);}
@@ -655,9 +653,8 @@ function holdingCard(h){
       <div><div class="k">股數</div><div class="v num">${fmt(h.qty)}</div></div>
       <div><div class="k">內扣後均價</div><div class="v num">${h.cost>0?fmt(h.avg,2):'—'}</div></div>
       <div><div class="k">現價</div><div class="v num">${priced?fmt(h.price,2):'—'}</div></div>
-      <div><div class="k">內扣後成本</div><div class="v num">${money(h.cost)}</div></div>
       <div><div class="k">年化報酬率</div><div class="v num ${h.annPct!=null?cls(h.annPct):''}">${h.annPct!=null?sign(h.annPct)+fmt(h.annPct,1)+'%':'—'}</div></div>
-      <div><div class="k">持有天數</div><div class="v num">${h.days!=null?fmt(h.days):'—'}</div></div>
+      <div><div class="k">內扣後成本</div><div class="v num">${money(h.cost)}</div></div>
       ${h.divCredit?`<div><div class="k">已領股利</div><div class="v num" style="color:var(--gold)">−${money(h.divCredit)}</div></div><div><div class="k">原始成本</div><div class="v num">${money(h.gross)}</div></div>`:''}
       <div style="grid-column:1/-1;margin-top:2px"><button class="btn ghost sm" data-price="${h.code}">✎ 手動設定股價</button></div>
     </div>
@@ -676,11 +673,10 @@ function boardCard(h,totMv){
     <div class="bgrid">
       <div><div class="bk">庫存/市值${wt!=null?` (${fmt(wt,1)}%)`:''}</div><div class="bv num">${fmt(h.qty)}/${priced?money(h.mv):'—'}</div></div>
       <div><div class="bk">損益試算</div><div class="bv num ${dir}">${priced?sign(h.upl)+money(h.upl):'—'}</div></div>
-      <div><div class="bk">報酬率</div><div class="bv num ${dir}">${priced?sign(h.uplPct)+fmt(h.uplPct,1)+'%':'—'}</div>
-        <div class="bsub num ${h.annPct!=null?cls(h.annPct):''}">年化 ${h.annPct!=null?sign(h.annPct)+fmt(h.annPct,1)+'%':'—'}</div></div>
+      <div><div class="bk">報酬率</div><div class="bv num ${dir}">${priced?sign(h.uplPct)+fmt(h.uplPct,1)+'%':'—'}</div></div>
     </div>
     <div class="bdetail">
-      <span>年化起算 <b>${h.firstDate?fmtDate(h.firstDate):'—'}</b> · 持有 <b>${h.days!=null?fmt(h.days):'—'}</b> 天${(priced&&h.annPct==null&&h.days!=null&&h.days<30)?'（未滿 30 天不計年化）':''}</span>
+      <span>年化報酬率 <b class="${h.annPct!=null?cls(h.annPct):''}">${h.annPct!=null?sign(h.annPct)+fmt(h.annPct,1)+'%':'—'}</b></span>
       <span>內扣均價 <b>${h.cost>0?fmt(h.avg,2):'—'}</b></span>
       <span>內扣成本 <b>${money(h.cost)}</b></span>
       ${h.divCredit?`<span>已領股利 <b style="color:var(--gold)">${money(h.divCredit)}</b></span>`:''}
