@@ -44,14 +44,35 @@ header{
   padding:calc(env(safe-area-inset-top) + 8px) 18px 9px;
   box-shadow:0 3px 12px rgba(251,90,75,.28);
 }
-header .hrow{display:flex;justify-content:space-between;align-items:baseline;gap:10px;}
+header .hrow{display:flex;justify-content:space-between;align-items:baseline;gap:10px;max-width:560px;margin:0 auto;}
 header .title{font-size:17px;letter-spacing:2.5px;font-weight:800;}
 header .hsync{font-size:12.5px;color:rgba(255,255,255,.92);font-weight:600;white-space:nowrap;}
-header .sub{font-size:13px;color:rgba(255,255,255,.85);margin-top:4px;min-height:0;}
+header .sub{font-size:13px;color:rgba(255,255,255,.85);margin:4px auto 0;min-height:0;max-width:560px;}
 header .sub:empty{display:none;}
 
+/* 市場切換：長駐 header，拇指可及。台股/美股/全部 */
+.mkt{display:flex;gap:3px;background:rgba(0,0,0,.13);border-radius:11px;padding:3px;margin:9px auto 0;max-width:560px;}
+.mkt button{flex:1;padding:7px 0;border-radius:8px;font-size:13.5px;font-weight:700;color:#fff;letter-spacing:1px;transition:background .16s,color .16s;text-shadow:0 1px 2px rgba(0,0,0,.18);}
+.mkt button.on{background:#fff;color:var(--brand);box-shadow:0 2px 8px rgba(20,32,60,.22);text-shadow:none;}
+.mkt button:not(.on):active{background:rgba(255,255,255,.2);}
+
+/* 幣別標記 */
+.cur{display:inline-block;font-size:10px;font-weight:800;letter-spacing:.6px;padding:1px 5px;border-radius:5px;margin-left:6px;vertical-align:middle;}
+.cur.twd{background:#EFF2F7;color:#5C687A;} .cur.usd{background:#E9F1FE;color:#2D77D6;}
+.chip.us{background:#E9F1FE;color:#2D77D6;}
+.chip-otc.us{background:#16283F;color:#7DB3FF;}
+/* 換匯紀錄 */
+.tag.fx{background:#EAF0FA;color:#3B6EA8;}
+/* 合併檢視的幣別小計 */
+.subtot{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px;}
+.subtot .s{background:var(--surface);border-radius:12px;padding:10px 12px;}
+.subtot .s .k{font-size:11.5px;color:var(--muted);font-weight:600;}
+.subtot .s .v{font-size:16.5px;font-weight:800;margin-top:2px;font-variant-numeric:tabular-nums;}
+.ratebar{display:flex;justify-content:space-between;align-items:baseline;gap:10px;font-size:12.5px;color:var(--muted);background:var(--surface);border-radius:10px;padding:8px 11px;margin:0 0 12px;}
+.ratebar b{color:var(--text);font-variant-numeric:tabular-nums;}
+
 /* 上邊距讓出 fixed header；此值僅為 JS 量測前的估計，載入後由 ResizeObserver 以實際高度覆寫 */
-main{padding:0 16px calc(96px + env(safe-area-inset-bottom));max-width:560px;margin:calc(env(safe-area-inset-top) + 48px) auto 0;position:relative;z-index:10;}
+main{padding:0 16px calc(96px + env(safe-area-inset-bottom));max-width:560px;margin:calc(env(safe-area-inset-top) + 88px) auto 0;position:relative;z-index:10;}
 .view{display:none;} .view.active{display:block;animation:fade .25s ease;}
 @keyframes fade{from{opacity:0;transform:translateY(6px);}to{opacity:1;transform:none;}}
 
@@ -192,6 +213,11 @@ input[readonly]{opacity:.65;cursor:not-allowed;}
     <div class="title">持股簿 · LEDGER</div>
     <div class="hsync"><span id="syncLine"></span><span id="priceTime"></span></div>
   </div>
+  <div class="mkt" id="mktSeg" role="tablist" aria-label="市場切換">
+    <button role="tab" class="on" data-m="tw" aria-selected="true">台股</button>
+    <button role="tab" data-m="us" aria-selected="false">美股</button>
+    <button role="tab" data-m="all" aria-selected="false">全部</button>
+  </div>
   <div class="sub" id="statusLine" hidden></div>
 </header>
 
@@ -199,14 +225,16 @@ input[readonly]{opacity:.65;cursor:not-allowed;}
   <!-- 總覽 -->
   <section class="view active" id="v-overview">
     <div class="hero">
-      <div class="hero-top"><div class="lbl">總市值 (TWD)</div><div class="big num" id="totalMv">—</div></div>
+      <div class="hero-top"><div class="lbl" id="mvLbl">總市值 (TWD)</div><div class="big num" id="totalMv">—</div></div>
       <div class="hero-grid">
-        <div class="cell tint-pl"><div class="k">未實現損益</div><div class="v num" id="cellUpl">—</div></div>
-        <div class="cell tint-blue" id="realCell" style="cursor:pointer"><div class="k">已實現損益 ›</div><div class="v num" id="cellReal">—</div></div>
-        <div class="cell tint-slate"><div class="k">內扣後成本</div><div class="v num" id="totalCost">—</div></div>
-        <div class="cell tint-gold"><div class="k">累積股利 · 已內扣</div><div class="v num" id="cellDiv">—</div></div>
+        <div class="cell tint-pl"><div class="k" id="uplLbl">未實現損益</div><div class="v num" id="cellUpl">—</div></div>
+        <div class="cell tint-blue" id="realCell" style="cursor:pointer"><div class="k" id="realLbl">已實現損益 ›</div><div class="v num" id="cellReal">—</div></div>
+        <div class="cell tint-slate"><div class="k" id="costLbl">內扣後成本</div><div class="v num" id="totalCost">—</div></div>
+        <div class="cell tint-gold"><div class="k" id="divLbl">累積股利 · 已內扣</div><div class="v num" id="cellDiv">—</div></div>
       </div>
+      <div class="subtot" id="subTot" style="display:none"></div>
     </div>
+    <div class="ratebar" id="rateBar" style="display:none"></div>
     <div class="section-h"><h2>持股</h2><button class="btn ghost sm" id="refreshBtn">更新收盤價</button></div>
     <div id="ovHoldings"></div>
   </section>
@@ -216,7 +244,7 @@ input[readonly]{opacity:.65;cursor:not-allowed;}
     <div class="section-h" style="justify-content:flex-end"><button class="btn ghost sm" id="refreshBtn2">更新報價</button></div>
     <div class="bsum">
       <div class="bsum-row">
-        <div><div class="bk">持有成本</div><div class="bv num" id="bCost">—</div></div>
+        <div><div class="bk" id="bCostK">持有成本</div><div class="bv num" id="bCost">—</div></div>
         <div><div class="bk">庫存損益</div><div class="bv num" id="bUpl">—</div></div>
         <div><div class="bk">報酬率</div><div class="bv num" id="bPct">—</div></div>
       </div>
@@ -230,7 +258,8 @@ input[readonly]{opacity:.65;cursor:not-allowed;}
 
   <!-- 交易 -->
   <section class="view" id="v-tx">
-    <div class="section-h"><h2>交易紀錄</h2></div>
+    <div class="section-h"><h2>交易紀錄</h2><button class="btn ghost sm" id="fxBtn" style="display:none">⇄ 記一筆換匯</button></div>
+    <div id="fxWrap" style="display:none"><div class="section-h" style="margin-top:4px"><h2 style="font-size:15px">換匯紀錄</h2></div><div id="fxList"></div><div class="section-h"><h2 style="font-size:15px">股票交易</h2></div></div>
     <div class="field" style="margin:0 4px 10px"><input id="txFilter" placeholder="🔎 輸入股票代號篩選，例如 00679B" inputmode="text" autocapitalize="characters" autocomplete="off" style="text-transform:uppercase"></div>
     <div id="txList"></div>
   </section>
@@ -272,6 +301,14 @@ input[readonly]{opacity:.65;cursor:not-allowed;}
       <div class="set-item">
         <div class="l"><div class="t">手續費折數</div><div class="d">券商常見 0.6（六折）。基準 0.1425%。</div></div>
         <input id="setFee" class="num" style="width:78px;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:9px;color:var(--text);text-align:center" inputmode="decimal">
+      </div>
+      <div class="set-item">
+        <div class="l"><div class="t">美股手續費</div><div class="d">美國券商多為 0。填小於 1 視為費率（0.001＝0.1%），大於等於 1 視為每筆固定金額（美元）。</div></div>
+        <input id="setUsFee" class="num" style="width:78px;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:9px;color:var(--text);text-align:center" inputmode="decimal">
+      </div>
+      <div class="set-item">
+        <div class="l"><div class="t">USD/TWD 匯率</div><div class="d">留空＝自動抓 Yahoo。填數字則固定用它換算。</div></div>
+        <input id="setUsdTwd" class="num" style="width:78px;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:9px;color:var(--text);text-align:center" inputmode="decimal" placeholder="自動">
       </div>
       <div class="set-item">
         <div class="l"><div class="t">匯出備份</div><div class="d">下載 JSON 檔，避免 iOS 清除本機資料。</div></div>
@@ -326,7 +363,7 @@ input[readonly]{opacity:.65;cursor:not-allowed;}
       <div class="field"><label>名稱（自動帶入）</label><input id="fName" placeholder="輸入代號後自動帶入" readonly></div>
     </div>
     <div class="two">
-      <div class="field"><label>市場</label><select id="fMarket"><option value="tse">上市</option><option value="otc">上櫃</option></select></div>
+      <div class="field"><label>市場</label><select id="fMarket"><option value="tse">台股・上市</option><option value="otc">台股・上櫃</option><option value="us">美股 (USD)</option></select></div>
       <div class="field"><label>日期</label><input id="fDate" type="date"></div>
     </div>
     <div class="two">
@@ -335,10 +372,27 @@ input[readonly]{opacity:.65;cursor:not-allowed;}
     </div>
     <div class="two">
       <div class="field"><label>手續費（自動，可改）</label><input id="fFee" class="num" inputmode="decimal"></div>
-      <div class="field" id="taxField"><label>證交稅（賣出，可改）</label><input id="fTax" class="num" inputmode="decimal"></div>
+      <div class="field" id="taxField"><label id="taxLbl">證交稅（賣出，可改）</label><input id="fTax" class="num" inputmode="decimal"></div>
     </div>
     <div class="calcline" id="txCalc">預估金額 —</div>
     <button class="btn full" id="txSave">儲存交易</button>
+  </div>
+</div>
+
+<!-- 換匯 modal -->
+<div class="modal" id="fxModal">
+  <div class="sheet">
+    <div class="grab"></div>
+    <h3>記一筆換匯</h3>
+    <div class="hint" style="margin:0 2px 14px">台幣換成美元。美元會成為一個部位，用<b>加權平均</b>算它的台幣成本——之後合併檢視就能把報酬拆成「選股賺的」與「匯率賺的」。</div>
+    <div class="field"><label>日期</label><input id="xDate" type="date"></div>
+    <div class="two">
+      <div class="field"><label>台幣金額</label><input id="xTwd" class="num" placeholder="3196000" inputmode="decimal"></div>
+      <div class="field"><label>換得美元</label><input id="xUsd" class="num" placeholder="100000" inputmode="decimal"></div>
+    </div>
+    <div class="field"><label>匯率（填上面兩欄自動算，也可直接填這裡＋任一欄）</label><input id="xRate" class="num" placeholder="31.96" inputmode="decimal"></div>
+    <div class="calcline" id="fxCalc">—</div>
+    <button class="btn full" id="fxSave">儲存換匯</button>
   </div>
 </div>
 
@@ -405,10 +459,14 @@ const store=(()=>{let mem={},ok=false;try{localStorage.setItem('__t','1');localS
         set:(k,v)=>{try{ok?localStorage.setItem(k,v):mem[k]=v;}catch(e){mem[k]=v;}}};})();
 
 const K='ledger.v1';
-function baseState(){return{tx:[],div:[],prices:{},settings:{worker:'',secret:'',proxy:'',fee:'0.6',finmind:''},updatedAt:0};}
+// fx[] = 換匯紀錄 {id,date,twd,usd,rate}：美元是一個部位，有自己的台幣加權平均成本。
+// 美股交易一律以美元計價（tx.market==='us'），匯率換算只發生在「全部」合併檢視。
+function baseState(){return{tx:[],div:[],fx:[],prices:{},settings:{worker:'',secret:'',proxy:'',fee:'0.6',finmind:'',usFee:'0',usdtwd:''},updatedAt:0};}
 let state=baseState();
 function load(){try{const r=store.get(K);if(r)state=Object.assign(baseState(),JSON.parse(r));}catch(e){}
- if(!state.settings)state.settings=baseState().settings;if(!state.prices)state.prices={};}
+ if(!state.settings)state.settings=baseState().settings;if(!state.prices)state.prices={};
+ if(!Array.isArray(state.fx))state.fx=[];
+ const d=baseState().settings;Object.keys(d).forEach(k=>{if(state.settings[k]==null)state.settings[k]=d[k];});}
 
 let _saveTimer=null;
 function save(push=true){
@@ -425,7 +483,7 @@ async function cloudSave(){
   if(!cloudOn())return;
   try{
     setSync('同步中…');
-    const body=JSON.stringify({tx:state.tx,div:state.div,prices:state.prices,updatedAt:state.updatedAt});
+    const body=JSON.stringify({tx:state.tx,div:state.div,fx:state.fx,prices:state.prices,updatedAt:state.updatedAt});
     const r=await fetch(apiUrl('/data')+'?k='+encodeURIComponent(state.settings.secret),{method:'PUT',headers:{'Content-Type':'application/json'},body});
     if(!r.ok)throw 0;
     setSync('已同步');
@@ -439,7 +497,7 @@ async function cloudLoad(){
     if(!r.ok)throw 0;
     const j=await r.json();
     if(j&&j.updatedAt&&j.updatedAt>(state.updatedAt||0)){
-      state.tx=j.tx||[];state.div=j.div||[];state.prices=j.prices||{};state.updatedAt=j.updatedAt;
+      state.tx=j.tx||[];state.div=j.div||[];state.fx=j.fx||[];state.prices=j.prices||{};state.updatedAt=j.updatedAt;
       store.set(K,JSON.stringify(state));render();
       setSync('已同步 · 雲端為準');
     }else if((state.updatedAt||0)>0&&(!j||!j.updatedAt)){
@@ -456,8 +514,15 @@ const cls=n=>n>0?'up':n<0?'down':'flat';            // 台股：正＝紅(up) �
 const sign=n=>n>0?'+':'';
 function toast(m){const t=$('#toast');t.textContent=m;t.classList.add('show');clearTimeout(t._t);t._t=setTimeout(()=>t.classList.remove('show'),1800);}
 function feeRate(){return 0.001425*(parseFloat(state.settings.fee)||1);}
-function calcFee(amt){return Math.max(1,Math.round(amt*feeRate()));}
-function calcTax(amt){return Math.round(amt*0.003);}
+function calcFee(amt,market){
+  if(isUS(market)){                                    // 美國券商多為零手續費；可在設定填一個固定值或費率
+    const v=parseFloat(state.settings.usFee)||0;
+    return v<1?+(amt*v).toFixed(2):v;                   // <1 視為費率，>=1 視為每筆固定金額
+  }
+  return Math.max(1,Math.round(amt*feeRate()));
+}
+// 台股賣出證交稅 0.3%；美股無證交稅，賣出僅極小的 SEC 費（約 0.00278%）
+function calcTax(amt,market){return isUS(market)?+(amt*0.0000278).toFixed(2):Math.round(amt*0.003);}
 function todayStr(){const d=twNow();return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;}
 
 /* ---------- 年化報酬率（XIRR，貨幣加權） ---------- */
@@ -502,13 +567,14 @@ function buildHoldings(){
   state.tx.forEach(t=>evs.push({d:t.date||'',ord:1,id:t.id,tx:t}));
   state.div.forEach(x=>evs.push({d:x.date||'',ord:0,id:x.id,div:x}));
   evs.sort((a,b)=>a.d.localeCompare(b.d)||(a.ord-b.ord)||(a.id-b.id));
-  const map={};let realized=0;const realizedList=[];
+  const map={};let realized=0,realizedUs=0;const realizedList=[];
   for(const e of evs){
     if(e.div){                                 // 現金股利
       const x=e.div,h=map[x.code];
       if(h&&h.qty>0)h.cost-=(x.amt||0);          // 內扣：壓低持股成本（之後賣出/未實現都受益）
-      else if(x.amt>0){realized+=x.amt;          // 已無持股且確有金額 → 視為已實現現金收入（amt=0 不產生雜訊列）
-        realizedList.push({date:x.date||'',code:x.code,name:x.name||'',type:'div',amt:x.amt,pl:x.amt});}
+      else if(x.amt>0){                          // 已無持股且確有金額 → 視為已實現現金收入（amt=0 不產生雜訊列）
+        if(x.cur==='USD')realizedUs+=x.amt;else realized+=x.amt;
+        realizedList.push({date:x.date||'',code:x.code,name:x.name||'',type:'div',amt:x.amt,pl:x.amt,cur:x.cur||'TWD'});}
       continue;
     }
     const t=e.tx,c=t.code;
@@ -522,14 +588,15 @@ function buildHoldings(){
       const sellQty=Math.min(t.qty,h.qty);
       const proceeds=gross-(t.fee||0)-(t.tax||0);
       const pl=proceeds-avg*sellQty;
-      realized+=pl;
-      realizedList.push({date:t.date||'',code:c,name:t.name||'',type:'sell',qty:sellQty,price:t.price,proceeds,cost:avg*sellQty,pl});
+      if(isUS(t.market))realizedUs+=pl;else realized+=pl;
+      realizedList.push({date:t.date||'',code:c,name:t.name||'',type:'sell',qty:sellQty,price:t.price,proceeds,cost:avg*sellQty,pl,cur:curOf(t.market)});
       h.cost-=avg*sellQty;h.rawCost-=rawAvg*sellQty;h.qty-=sellQty;
       if(h.qty<=0){h.qty=0;h.cost=0;h.rawCost=0;}
     }
   }
   const today=todayStr();
   const holdings=Object.values(map).filter(h=>h.qty>0).map(h=>{
+    h.cur=curOf(h.market);                     // 'USD'（美股）或 'TWD'（台股）
     h.gross=h.rawCost;                         // 買入原始成本（剩餘股，未扣股利）
     h.divCredit=Math.max(0,h.rawCost-h.cost);  // 已內扣到剩餘股的股利（raw 與內扣後之差）
     h.avg=h.cost/h.qty;                        // 內扣後均價（h.cost 已是內扣後）
@@ -549,11 +616,48 @@ function buildHoldings(){
     h.chgPct=(h.chg!=null&&h.price!=null&&(h.price-h.chg)!==0)?h.chg/(h.price-h.chg)*100:null; // 今日%（對昨收）
     return h;
   }).sort((a,b)=>(b.mv||0)-(a.mv||0));
-  return{holdings,realized,realizedList};
+  return{holdings,realized,realizedUs,realizedList};
 }
 function totalDiv(){return state.div.reduce((s,d)=>s+(d.amt||0),0);}
 // 依交易紀錄推算「某日（除息日）之前」持有的股數
 function sharesHeldBefore(code,exDate){let q=0;state.tx.forEach(t=>{if(t.code===code&&(t.date||'')<exDate)q+=t.side==='buy'?t.qty:-t.qty;});return Math.max(0,q);}
+
+/* ---------- 幣別 / 匯率 / 美元帳戶 ----------
+   美元是一個「部位」，有自己的台幣加權平均成本（來自 fx 換匯紀錄）。
+   美股交易全部以美元計價，與匯率無關；匯率只在合併檢視時把美元資產換回台幣。
+   總報酬可乾淨拆成兩塊，兩者相加等於台幣總報酬：
+     選股貢獻(TWD) = (美元資產 − 換匯取得的美元) × 現匯率
+     匯差損益(TWD) = 換匯取得的美元 × (現匯率 − 換匯均價匯率)          */
+const US='us';
+const isUS=m=>m===US;
+function curOf(market){return isUS(market)?'USD':'TWD';}
+// 股利／報價紀錄沒存市場，用同代號的交易反查
+function marketOfCode(code){const t=state.tx.find(x=>x.code===code);return t?(t.market||'tse'):'tse';}
+// 換匯總計：投入台幣、取得美元、加權平均匯率
+function fxTotals(){
+  let usd=0,twd=0;
+  (state.fx||[]).forEach(f=>{usd+=(+f.usd||0);twd+=(+f.twd||0);});
+  return{usd,twd,rate:usd>0?twd/usd:null};
+}
+// 現行美元匯率：手動設定 > 抓到的報價 > 換匯均價 > 空
+function usdRate(){
+  const m=parseFloat(state.settings.usdtwd);
+  if(m>0)return m;
+  const p=state.prices.USDTWD;
+  if(p&&p.price>0)return p.price;
+  return fxTotals().rate;
+}
+// 美元現金餘額：換匯進來 + 賣股所得 + 美股股利 − 買股支出
+function usdCash(){
+  let c=fxTotals().usd;
+  state.tx.forEach(t=>{
+    if(!isUS(t.market)||!t.price)return;                 // price=0 的配股不動用現金
+    const g=(+t.qty||0)*(+t.price||0);
+    c+=t.side==='buy'?-(g+(+t.fee||0)):(g-(+t.fee||0)-(+t.tax||0));
+  });
+  state.div.forEach(d=>{if(d.cur==='USD')c+=(+d.amt||0);});
+  return c;
+}
 
 /* ---------- 股票分割 ----------
    本 App 無分割功能：分割前的交易靠手動「股數 ×n、單價 ÷n」輸入，帳上股數一律是「分割調整後」基準。
@@ -573,46 +677,119 @@ function expectedDivAmt(d){
 }
 
 /* ---------- render ---------- */
+/* 依市場算出一組摘要數字。台股/美股用各自幣別；'all' 把美元資產換成台幣並拆出匯差。 */
+function summarize(all){
+  const hs=all.filter(h=>inMkt(h.market));
+  const priced=hs.filter(h=>h.mv!=null);
+  const cost=hs.reduce((s,h)=>s+h.cost,0);
+  const mv=priced.reduce((s,h)=>s+h.mv,0)+hs.filter(h=>h.mv==null).reduce((s,h)=>s+h.cost,0);
+  return{hs,cost,mv,upl:priced.reduce((s,h)=>s+h.upl,0)};
+}
+// 合併檢視：台股(TWD) + 美元資產(美股市值+美元現金)×現匯率，並拆出匯差
+function combined(all){
+  const twH=all.filter(h=>!isUS(h.market)),usH=all.filter(h=>isUS(h.market));
+  const val=arr=>{const p=arr.filter(h=>h.mv!=null);return p.reduce((s,h)=>s+h.mv,0)+arr.filter(h=>h.mv==null).reduce((s,h)=>s+h.cost,0);};
+  const twMv=val(twH),twCost=twH.reduce((s,h)=>s+h.cost,0);
+  const usMv=val(usH),usCost=usH.reduce((s,h)=>s+h.cost,0);
+  const cash=usdCash(),F=fxTotals(),r=usdRate();
+  const usAsset=usMv+cash;                                 // 美元資產總額（含未投入現金）
+  const usMvTwd=r?usAsset*r:null;
+  // 匯差只算在「實際換過去的本金」上；美元賺到的部分用現匯率換算，兩者相加＝台幣總報酬
+  const fxPL=(r&&F.rate!=null)?F.usd*(r-F.rate):null;
+  const pickPL=(r!=null)?(usAsset-F.usd)*r:null;            // 選股+股利貢獻（換成台幣）
+  return{twH,usH,twMv,twCost,twUpl:twH.filter(h=>h.mv!=null).reduce((s,h)=>s+h.upl,0),
+         usMv,usCost,cash,usAsset,usMvTwd,F,r,fxPL,pickPL,
+         totalMv:(twMv||0)+(usMvTwd||0),invested:twCost+F.twd};
+}
 function render(){
-  const{holdings,realized,realizedList}=buildHoldings();
+  const{holdings:allH,realized,realizedUs,realizedList}=buildHoldings();
   lastRealized=realizedList;
-  const cost=holdings.reduce((s,h)=>s+h.cost,0);
-  const priced=holdings.filter(h=>h.mv!=null);
-  const mv=priced.reduce((s,h)=>s+h.mv,0)+holdings.filter(h=>h.mv==null).reduce((s,h)=>s+h.cost,0);
-  const upl=priced.reduce((s,h)=>s+h.upl,0);
-  const uplPct=cost>0?upl/cost*100:0;
-  const div=totalDiv();
+  const S=summarize(allH),C=combined(allH);
+  const holdings=S.hs;
+  const isAll=mkt==='all',isUs=mkt==='us';
+  const M=isUs?(n=>fmt(n,2)):money;                        // 美元顯示到分
+  const cost=isAll?null:S.cost, upl=isAll?null:S.upl;
+  const uplPct=(!isAll&&S.cost>0)?S.upl/S.cost*100:null;
+  const div=(state.div||[]).filter(d=>isAll?true:(isUs?d.cur==='USD':d.cur!=='USD')).reduce((a,d)=>a+(d.amt||0),0);
+  const rz=isAll?null:(isUs?realizedUs:realized);
 
-  $('#totalMv').textContent=money(mv);
-  $('#totalCost').textContent=money(cost);
-  const ce=$('#cellUpl');ce.innerHTML=(holdings.length?sign(upl)+money(upl)+' <span class="subpct">('+sign(uplPct)+fmt(uplPct,1)+'%)</span>':'—');ce.className='v num '+cls(upl);
-  const cr=$('#cellReal');cr.textContent=sign(realized)+money(realized);cr.className='v num '+cls(realized);
-  $('#cellDiv').textContent=money(div);
+  $('#mvLbl').textContent=isAll?'總資產 (TWD)':(isUs?'美元資產 (USD)':'總市值 (TWD)');
+  if(isAll){
+    $('#totalMv').textContent=C.r?money(C.totalMv):'—';
+    const ce=$('#cellUpl');
+    const tot=(C.r!=null)?(C.totalMv-C.invested):null;
+    ce.innerHTML=tot!=null?sign(tot)+money(tot):'—';ce.className='v num '+cls(tot||0);
+    $('#uplLbl').textContent='總損益 (含匯差)';
+    const cr=$('#cellReal');cr.innerHTML=C.fxPL!=null?sign(C.fxPL)+money(C.fxPL):'—';cr.className='v num '+cls(C.fxPL||0);
+    $('#realLbl').textContent='匯差損益';
+    $('#realCell').style.cursor='default';
+    $('#totalCost').textContent=money(C.invested);
+    $('#costLbl').textContent='投入本金 (TWD)';
+    $('#cellDiv').textContent=C.pickPL!=null?sign(C.pickPL)+money(C.pickPL):'—';
+    $('#cellDiv').className='v num '+cls(C.pickPL||0);
+    $('#divLbl').textContent='選股貢獻 (TWD)';
+  }else{
+    $('#totalMv').textContent=isUs?M(S.mv+C.cash):money(S.mv);
+    const ce=$('#cellUpl');ce.innerHTML=(holdings.length?sign(upl)+M(upl)+' <span class="subpct">('+sign(uplPct)+fmt(uplPct,1)+'%)</span>':'—');ce.className='v num '+cls(upl);
+    $('#uplLbl').textContent='未實現損益';
+    const cr=$('#cellReal');cr.textContent=sign(rz)+M(rz);cr.className='v num '+cls(rz);
+    $('#realLbl').textContent='已實現損益 ›';
+    $('#realCell').style.cursor='pointer';
+    $('#totalCost').textContent=M(cost);
+    $('#costLbl').textContent='内扣後成本';
+    $('#cellDiv').textContent=M(div);$('#cellDiv').className='v num';
+    $('#divLbl').textContent='累積股利 · 已内扣';
+  }
+  // 匯率列 + 美元現金（美股/全部才顯示）
+  const rb=$('#rateBar');
+  if(mkt==='tw'||!(state.fx||[]).length&&!C.usH.length){rb.style.display='none';}
+  else{
+    rb.style.display='flex';
+    const pr=state.prices.USDTWD;
+    rb.innerHTML=`<span>USD/TWD <b>${C.r?fmt(C.r,3):'—'}</b>`
+      +`${pr&&pr.t?` <span style="opacity:.6">${new Date(pr.t).toLocaleDateString('zh-TW')}</span>`:''}`
+      +`${C.F.rate!=null?` · 換匯均價 <b>${fmt(C.F.rate,3)}</b>`:''}</span>`
+      +`<span>美元現金 <b>${fmt(C.cash,2)}</b></span>`;
+  }
+  // 合併檢視的兩幣別小計
+  const st=$('#subTot');
+  if(isAll){
+    st.style.display='grid';
+    st.innerHTML=`<div class="s"><div class="k">台股市值</div><div class="v num">${money(C.twMv)}</div></div>`
+      +`<div class="s"><div class="k">美元資產 · 換算</div><div class="v num">${C.usMvTwd!=null?money(C.usMvTwd):'—'}</div>`
+      +`<div class="k" style="margin-top:2px">${fmt(C.usAsset,2)} USD</div></div>`;
+  }else st.style.display='none';
 
   // overview holdings (compact, top items)
   const ov=$('#ovHoldings');
-  if(!holdings.length){ov.innerHTML=`<div class="empty"><div class="big">▦</div>還沒有持股<br>到「交易」頁按右下＋新增第一筆交易</div>`;}
+  if(!holdings.length){ov.innerHTML=`<div class="empty"><div class="big">▦</div>${mkt==='us'?'還沒有美股持股<br>先到「交易」頁記一筆換匯，再新增買進':'還沒有持股<br>到「交易」頁按右下＋新增第一筆交易'}</div>`;}
   else ov.innerHTML=holdings.map(holdingCard).join('');
 
-  // 持股摘要面板（深色，券商風）
-  $('#bCost').textContent=money(cost);
-  const bu=$('#bUpl');bu.textContent=holdings.length?sign(upl)+money(upl):'—';bu.className='bv num '+cls(upl);
-  const bp=$('#bPct');bp.textContent=holdings.length?sign(uplPct)+fmt(uplPct,1)+'%':'—';bp.className='bv num '+cls(uplPct);
+  // 持股摘要面板（深色，券商風）。合併檢視改用台幣總計。
+  const sCost=isAll?C.invested:cost, sUpl=isAll?((C.r!=null)?(C.totalMv-C.invested):null):upl;
+  const sPct=(sCost>0&&sUpl!=null)?sUpl/sCost*100:null;
+  const sM=isAll?money:M;
+  $('#bCost').textContent=sCost!=null?sM(sCost):'—';
+  const bu=$('#bUpl');bu.textContent=sUpl!=null?sign(sUpl)+sM(sUpl):'—';bu.className='bv num '+cls(sUpl||0);
+  const bp=$('#bPct');bp.textContent=sPct!=null?sign(sPct)+fmt(sPct,1)+'%':'—';bp.className='bv num '+cls(sPct||0);
+  $('#bCostK').textContent=isAll?'投入本金 (TWD)':'持有成本';
   // 今日損益 / 今日報酬率（對昨收）
+  // 合併檢視要先把美元換成台幣才能相加；單一市場維持原生幣別
+  const R=C.r,toTwd=(h,v)=>(isAll&&isUS(h.market)&&R)?v*R:v;
   const hasChg=holdings.some(h=>h.chg!=null);
-  const todayPL=holdings.reduce((s,h)=>s+(h.todayPL||0),0);
-  const prevMv=holdings.reduce((s,h)=>s+((h.chg!=null&&h.price!=null)?(h.price-h.chg)*h.qty:0),0);
+  const todayPL=holdings.reduce((s,h)=>s+toTwd(h,h.todayPL||0),0);
+  const prevMv=holdings.reduce((s,h)=>s+((h.chg!=null&&h.price!=null)?toTwd(h,(h.price-h.chg)*h.qty):0),0);
   const todayPct=prevMv>0?todayPL/prevMv*100:null;
-  const bt=$('#bToday');bt.textContent=hasChg?sign(todayPL)+money(todayPL):'—';bt.className='bv num '+cls(hasChg?todayPL:0);
+  const bt=$('#bToday');bt.textContent=hasChg?sign(todayPL)+sM(todayPL):'—';bt.className='bv num '+cls(hasChg?todayPL:0);
   const btp=$('#bTodayPct');btp.textContent=(hasChg&&todayPct!=null)?sign(todayPct)+fmt(todayPct,1)+'%':'—';btp.className='bv num '+cls(hasChg?(todayPct||0):0);
   // 股價更新時間 → 顯示在最上面標題列（已同步旁）
   const newest=Math.max(0,...holdings.map(h=>{const p=state.prices[h.code];return (p&&p.t)||0;}));
   const pt=$('#priceTime');if(pt)pt.textContent=newest?(' · '+new Date(newest).toLocaleTimeString('zh-TW',{hour:'2-digit',minute:'2-digit',hour12:false})):'';
 
-  // 持股卡片
+  // 持股卡片。權重分母用「同市場、有報價」的市值合計
   const hl=$('#holdingsList');
-  const totMv=priced.reduce((s,h)=>s+h.mv,0);
-  hl.innerHTML=holdings.length?holdings.map(h=>boardCard(h,totMv)).join(''):`<div style="padding:26px 14px;text-align:center;color:#717B8B;font-size:14px">尚無持股</div>`;
+  const totMv=holdings.filter(h=>h.mv!=null).reduce((s,h)=>s+toTwd(h,h.mv),0);
+  hl.innerHTML=holdings.length?holdings.map(h=>boardCard(h,totMv,toTwd(h,h.mv))).join(''):`<div style="padding:26px 14px;text-align:center;color:#717B8B;font-size:14px">尚無持股</div>`;
   bindHoldingToggles();
 
   // 交易／股利清單（可依股票代號篩選；各自綁刪除鈕）
@@ -630,70 +807,90 @@ function renderList(el,arr,filter,cardFn,icon,word){
   bindDeletes();
 }
 let divFilter='';
-function renderDivList(){renderList($('#divList'),state.div,divFilter,divCard,'$','股利紀錄');}
+function renderDivList(){renderList($('#divList'),state.div.filter(d=>inMkt(marketOfCode(d.code))),divFilter,divCard,'$','股利紀錄');}
 let lastRealized=[];
 function realizedCard(r){
   const nm=r.name||nameForCode(r.code);
+  const u=r.cur==='USD',M=u?(n=>'$'+fmt(n,2)):money;
   if(r.type==='div'){
     return `<div class="card"><div class="tx">
       <div class="tag div">息</div>
       <div class="info"><div class="t1">${r.code} <span style="color:var(--muted);font-weight:400">${nm} 配息</span></div>
         <div class="t2">${r.date||''} · 賣光後入帳</div></div>
-      <div class="amt"><div class="num ${cls(r.pl)}">${sign(r.pl)}${money(r.pl)}</div></div>
+      <div class="amt"><div class="num ${cls(r.pl)}">${sign(r.pl)}${M(r.pl)}</div></div>
     </div></div>`;
   }
   return `<div class="card"><div class="tx">
     <div class="tag sell">賣</div>
     <div class="info"><div class="t1">${r.code} <span style="color:var(--muted);font-weight:400">${nm}</span></div>
-      <div class="t2">${r.date||''} · ${fmt(r.qty)} 股 @ ${fmt(r.price,2)}</div></div>
-    <div class="amt"><div class="num ${cls(r.pl)}">${sign(r.pl)}${money(r.pl)}</div>
-      <div class="a2 num">淨額 ${money(r.proceeds)}</div></div>
+      <div class="t2">${r.date||''} · ${fmt(r.qty,u?2:0)} 股 @ ${u?'$':''}${fmt(r.price,2)}</div></div>
+    <div class="amt"><div class="num ${cls(r.pl)}">${sign(r.pl)}${M(r.pl)}</div>
+      <div class="a2 num">淨額 ${M(r.proceeds)}</div></div>
   </div></div>`;
 }
 function openRealizedModal(){
-  const list=[...lastRealized].sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+  const list=lastRealized.filter(r=>mkt==='all'?true:(mkt==='us'?r.cur==='USD':r.cur!=='USD')).sort((a,b)=>(b.date||'').localeCompare(a.date||''));
   const total=list.reduce((s,r)=>s+r.pl,0);
-  $('#realizedSum').innerHTML=`共 <b>${list.length}</b> 筆 · 已實現合計 <b class="${cls(total)}">${sign(total)}${money(total)}</b>`;
+  const uc=list.length&&list.every(r=>r.cur==='USD');
+  $('#realizedSum').innerHTML=`共 <b>${list.length}</b> 筆 · 已實現合計 <b class="${cls(total)}">${sign(total)}${uc?'$'+fmt(total,2):money(total)}</b>`;
   $('#realizedItems').innerHTML=list.length?list.map(realizedCard).join('')
     :`<div class="empty"><div class="big">↺</div>還沒有已實現紀錄（賣出或賣光後配息才會產生）</div>`;
   $('#realizedModal').classList.add('show');
 }
+/* ---------- 市場切換（'tw' | 'us' | 'all'）---------- */
+// 只是檢視狀態，不上雲；存本機讓重開 App 記得上次看哪個市場。
+const MK='ledger_mkt';
+let mkt=(()=>{const v=store.get(MK);return (v==='us'||v==='all')?v:'tw';})();
+function inMkt(m){return mkt==='all'?true:(mkt==='us'?isUS(m):!isUS(m));}
+function setMkt(m){
+  mkt=m;store.set(MK,m);
+  document.querySelectorAll('#mktSeg button').forEach(b=>{
+    const on=b.dataset.m===m;b.classList.toggle('on',on);b.setAttribute('aria-selected',on?'true':'false');
+  });
+  document.body.dataset.mkt=m;
+  render();
+}
 let txFilter='';
-function renderTxList(){renderList($('#txList'),state.tx,txFilter,txCard,'⇅','交易紀錄');}
+function renderTxList(){renderFxList();renderList($('#txList'),state.tx.filter(t=>inMkt(t.market)),txFilter,txCard,'⇅','交易紀錄');}
 
+// 顯示輔助：幣別符號、小數位、市場標籤
+const U=h=>h.cur==='USD'?'$':'';
+const D=h=>h.cur==='USD'?(n=>fmt(n,2)):money;
+function mkTag(m){return isUS(m)?{c:'us',t:'美股'}:(m==='otc'?{c:'otc',t:'上櫃'}:{c:'tse',t:'上市'});}
 function holdingCard(h){
   const priced=h.price!=null;
   const dir=priced?cls(h.upl):'flat';
   return `<div class="card holding acc-${dir}" data-code="${h.code}">
     <div class="row">
-      <div><span class="code">${h.code}</span> <span class="chip ${h.market==='otc'?'otc':'tse'}">${h.market==='otc'?'上櫃':'上市'}</span>${h.name?` <span class="name">${h.name}</span>`:''}</div>
-      <div><div class="mv num">${priced?money(h.mv):'未報價'}</div>
-        <div class="plr num ${dir}">${priced?sign(h.upl)+money(h.upl)+' ('+sign(h.uplPct)+fmt(h.uplPct,1)+'%)':'點此設股價'}</div></div>
+      <div><span class="code">${h.code}</span> <span class="chip ${mkTag(h.market).c}">${mkTag(h.market).t}</span>${h.name?` <span class="name">${h.name}</span>`:''}</div>
+      <div><div class="mv num">${priced?U(h)+D(h)(h.mv):'未報價'}</div>
+        <div class="plr num ${dir}">${priced?sign(h.upl)+U(h)+D(h)(h.upl)+' ('+sign(h.uplPct)+fmt(h.uplPct,1)+'%)':'點此設股價'}</div>
+        ${(priced&&h.cur==='USD'&&usdRate())?`<div class="plr num" style="color:var(--faint);font-size:12px">≈ NT$ ${money(h.mv*usdRate())}</div>`:''}</div>
     </div>
     <div class="detail">
       <div><div class="k">股數</div><div class="v num">${fmt(h.qty)}</div></div>
-      <div><div class="k">內扣後均價</div><div class="v num">${h.cost>0?fmt(h.avg,2):'—'}</div></div>
-      <div><div class="k">現價</div><div class="v num">${priced?fmt(h.price,2):'—'}</div></div>
+      <div><div class="k">內扣後均價</div><div class="v num">${h.cost>0?U(h)+fmt(h.avg,2):'—'}</div></div>
+      <div><div class="k">現價</div><div class="v num">${priced?U(h)+fmt(h.price,2):'—'}</div></div>
       <div><div class="k">年化報酬率</div><div class="v num ${h.annPct!=null?cls(h.annPct):''}">${h.annPct!=null?sign(h.annPct)+fmt(h.annPct,1)+'%':'—'}</div></div>
-      <div><div class="k">內扣後成本</div><div class="v num">${money(h.cost)}</div></div>
-      ${h.divCredit?`<div><div class="k">已領股利</div><div class="v num" style="color:var(--gold)">−${money(h.divCredit)}</div></div><div><div class="k">原始成本</div><div class="v num">${money(h.gross)}</div></div>`:''}
+      <div><div class="k">內扣後成本</div><div class="v num">${U(h)+D(h)(h.cost)}</div></div>
+      ${h.divCredit?`<div><div class="k">已領股利</div><div class="v num" style="color:var(--gold)">−${U(h)+D(h)(h.divCredit)}</div></div><div><div class="k">原始成本</div><div class="v num">${U(h)+D(h)(h.gross)}</div></div>`:''}
       <div style="grid-column:1/-1;margin-top:2px"><button class="btn ghost sm" data-price="${h.code}">✎ 手動設定股價</button></div>
     </div>
   </div>`;
 }
-function boardCard(h,totMv){
+function boardCard(h,totMv,mvForWeight){
   const priced=h.price!=null;
   const dir=priced?cls(h.upl):'flat';
-  const wt=(priced&&totMv>0)?(h.mv/totMv*100):null;
+  const wt=(priced&&totMv>0)?((mvForWeight!=null?mvForWeight:h.mv)/totMv*100):null;
   return `<div class="brow ${dir}${priced?'':' np'}" data-code="${h.code}">
     <div class="brow-top">
-      <div class="bnm"><span class="bcode">${h.code}</span>${h.name?`<span class="bname-i">${h.name}</span>`:''}</div>
-      <div class="bprice num">${priced?fmt(h.price,2):'未報價'}</div>
+      <div class="bnm"><span class="bcode">${h.code}</span><span class="chip-otc ${mkTag(h.market).c}">${mkTag(h.market).t}</span>${h.name?`<span class="bname-i">${h.name}</span>`:''}</div>
+      <div class="bprice num">${priced?U(h)+fmt(h.price,2):'未報價'}</div>
       <div class="bchg num ${h.chg!=null?cls(h.chg):''}">${h.chg!=null?sign(h.chg)+fmt(h.chg,2)+' ('+sign(h.chgPct)+fmt(h.chgPct,1)+'%)':''}</div>
     </div>
     <div class="bgrid">
-      <div><div class="bk">庫存/市值${wt!=null?` (${fmt(wt,1)}%)`:''}</div><div class="bv num">${fmt(h.qty)}/${priced?money(h.mv):'—'}</div></div>
-      <div><div class="bk">損益試算</div><div class="bv num ${dir}">${priced?sign(h.upl)+money(h.upl):'—'}</div></div>
+      <div><div class="bk">庫存/市值${wt!=null?` (${fmt(wt,1)}%)`:''}</div><div class="bv num">${fmt(h.qty,h.cur==='USD'?2:0)}/${priced?U(h)+D(h)(h.mv):'—'}</div></div>
+      <div><div class="bk">損益試算</div><div class="bv num ${dir}">${priced?sign(h.upl)+U(h)+D(h)(h.upl):'—'}</div></div>
       <div><div class="bk">報酬率</div><div class="bv num ${dir}">${priced?sign(h.uplPct)+fmt(h.uplPct,1)+'%':'—'}</div></div>
     </div>
     <div class="bdetail">
@@ -728,7 +925,7 @@ function txCard(t){
   return `<div class="card"><div class="tx">
     <div class="tag ${t.side}">${t.side==='buy'?'買':'賣'}</div>
     <div class="info"><div class="t1">${t.code} <span style="color:var(--muted);font-weight:400">${t.name||nameForCode(t.code)}</span></div>
-      <div class="t2">${t.date||''} · ${fmt(t.qty)} 股 @ ${fmt(t.price,2)}</div></div>
+      <div class="t2">${t.date||''} · ${fmt(t.qty,isUS(t.market)?2:0)} 股 @ ${isUS(t.market)?'$':''}${fmt(t.price,2)}</div></div>
     <div class="amt"><div class="num ${t.side==='buy'?'up':'down'}">${t.side==='buy'?'-':'+'}${money(net)}</div>
       <div class="a2 num">費 ${fmt(t.fee||0)}${t.side==='sell'?' 稅 '+fmt(t.tax||0):''}</div></div>
     <button class="del" data-del="tx" data-id="${t.id}">刪除</button>
@@ -742,11 +939,11 @@ function divCard(d){
   const sf=splitFactor(d.code,d.date);
   return `<div class="card"><div class="tx">
     <div class="tag div">息</div>
-    <div class="info"><div class="t1">${d.code} <span style="color:var(--muted);font-weight:400">${d.name||nameForCode(d.code)}</span></div>
+    <div class="info"><div class="t1">${d.code} <span style="color:var(--muted);font-weight:400">${d.name||nameForCode(d.code)}</span>${d.cur==='USD'?'<span class="cur usd">USD</span>':''}</div>
       <div class="t2">${d.date||''}${d.per?' · 每股 '+fmt(d.per,2):''}${sf>1?' <span style="color:var(--faint)">(分割前基準 ÷'+sf+')</span>':''}</div>
       ${off?`<div class="t2 divwarn">⚠ 金額與 ${fmt(sharesHeldBefore(d.code,d.date))} 股不符，應為 ${money(exp)}
         <button class="fixdiv" data-fixdiv="${d.id}">改成這個</button></div>`:''}</div>
-    <div class="amt"><div class="num" style="color:var(--gold)">+${money(d.amt)}</div></div>
+    <div class="amt"><div class="num" style="color:var(--gold)">${d.cur==='USD'?'+$'+fmt(d.amt,2):'+'+money(d.amt)}</div></div>
     <button class="del" data-del="div" data-id="${d.id}">刪除</button>
   </div></div>`;
 }
@@ -757,7 +954,9 @@ function bindHoldingToggles(){
 function bindDeletes(){document.querySelectorAll('[data-del]').forEach(b=>b.onclick=e=>{
   e.stopPropagation();const t=b.dataset.del,id=+b.dataset.id;
   askConfirm('確定刪除這筆紀錄？',()=>{
-    if(t==='tx')state.tx=state.tx.filter(x=>x.id!==id);else state.div=state.div.filter(x=>x.id!==id);
+    if(t==='tx')state.tx=state.tx.filter(x=>x.id!==id);
+    else if(t==='fx')state.fx=state.fx.filter(x=>x.id!==id);
+    else state.div=state.div.filter(x=>x.id!==id);
     save();render();toast('已刪除');
   });
 });
@@ -770,6 +969,7 @@ document.querySelectorAll('[data-fixdiv]').forEach(b=>b.onclick=e=>{
 });}
 
 /* ---------- navigation ---------- */
+document.querySelectorAll('#mktSeg button').forEach(b=>b.onclick=()=>setMkt(b.dataset.m));
 document.querySelectorAll('nav button').forEach(b=>b.onclick=()=>{
   document.querySelectorAll('nav button').forEach(x=>x.classList.remove('active'));
   b.classList.add('active');
@@ -782,27 +982,44 @@ document.querySelectorAll('nav button').forEach(b=>b.onclick=()=>{
 /* ---------- transaction modal ---------- */
 let txSide='buy';
 function openTx(){
-  txSide='buy';updateSeg();
+  txSide='buy';
   $('#fDate').value=new Date().toISOString().slice(0,10);
   ['fCode','fName','fQty','fPrice','fFee','fTax'].forEach(i=>$('#'+i).value='');
-  $('#fMarket').value='tse';
+  $('#fMarket').value=mkt==='us'?'us':'tse';           // 市場跟著目前檢視，少一次點選
+  updateSeg();
   $('#txCalc').textContent='預估金額 —';
   $('#txModal').classList.add('show');
+}
+// 依所選市場調整幣別提示與欄位語意（美股：零碎股、SEC 費）
+function applyMarketToForm(){
+  const us=isUS($('#fMarket').value);
+  $('#taxLbl').textContent=us?'SEC 費（賣出，可改）':'證交稅（賣出，可改）';
+  $('#fQty').setAttribute('inputmode',us?'decimal':'numeric');
+  $('#fQty').placeholder=us?'10（可帶小數）':'1000';
+  $('#fPrice').placeholder=us?'705.40':'580';
+  $('#fCode').placeholder=us?'VOO':'2330';
 }
 function updateSeg(){document.querySelectorAll('#txSeg button').forEach(b=>{
   const on=b.dataset.side===txSide;b.classList.toggle('on',on);
   b.classList.toggle('buyc',on&&txSide==='buy');b.classList.toggle('sellc',on&&txSide==='sell');});
   $('#taxField').style.display=txSide==='sell'?'block':'none';
+  applyMarketToForm();
 }
 document.querySelectorAll('#txSeg button').forEach(b=>b.onclick=()=>{txSide=b.dataset.side;updateSeg();recalcTx();});
 function recalcTx(){
+  const mk=$('#fMarket').value,us=isUS(mk),U=us?'$':'',D=us?(n=>fmt(n,2)):money;
   const q=parseFloat($('#fQty').value),p=parseFloat($('#fPrice').value);
   if(!q||!p){$('#txCalc').textContent='預估金額 —';return;}
-  const gross=q*p,fee=calcFee(gross);
+  const gross=q*p,fee=calcFee(gross,mk);
   $('#fFee').value=fee;
-  let txt=`成交 <b>${money(gross)}</b> · 手續費 <b>${fmt(fee)}</b>`;
-  if(txSide==='sell'){const tax=calcTax(gross);$('#fTax').value=tax;txt+=` · 證交稅 <b>${fmt(tax)}</b> · 實收 <b>${money(gross-fee-tax)}</b>`;}
-  else txt+=` · 實付 <b>${money(gross+fee)}</b>`;
+  const sell=txSide==='sell';
+  const tax=sell?calcTax(gross,mk):0;
+  if(sell)$('#fTax').value=tax;
+  const net=sell?(gross-fee-tax):(gross+fee);
+  let txt=`成交 <b>${U}${D(gross)}</b> · 手續費 <b>${U}${fmt(fee,us?2:0)}</b>`;
+  if(sell)txt+=` · ${us?'SEC 費':'證交稅'} <b>${U}${fmt(tax,us?2:0)}</b>`;
+  txt+=` · ${sell?'實收':'實付'} <b>${U}${D(net)}</b>`;
+  if(us){const r=usdRate();if(r)txt+=`<br><span style="opacity:.75">約 NT$ ${money(net*r)}（匯率 ${fmt(r,3)}）</span>`;}
   $('#txCalc').innerHTML=txt;
 }
 ['fQty','fPrice'].forEach(i=>$('#'+i).addEventListener('input',recalcTx));
@@ -820,15 +1037,74 @@ async function autoFillName(){               // 依代號自動帶入名稱（�
   }
 }
 $('#fCode').addEventListener('input',autoFillName);
-$('#fMarket').addEventListener('change',autoFillName);
+$('#fMarket').addEventListener('change',()=>{applyMarketToForm();recalcTx();autoFillName();});
 $('#txSave').onclick=()=>{
   const code=$('#fCode').value.trim().toUpperCase(),q=parseFloat($('#fQty').value),p=parseFloat($('#fPrice').value);
   if(!code||!q||!p){toast('請填代號、股數、價格');return;}
+  if(isUS($('#fMarket').value)&&!(state.fx||[]).length){toast('請先記一筆換匯，美元才有台幣成本');return;}
   state.tx.push({id:Date.now(),side:txSide,code,name:$('#fName').value.trim(),market:$('#fMarket').value,
     date:$('#fDate').value,qty:q,price:p,fee:parseFloat($('#fFee').value)||0,
     tax:txSide==='sell'?(parseFloat($('#fTax').value)||0):0});
   save();render();$('#txModal').classList.remove('show');toast('交易已儲存');
 };
+
+/* ---------- 換匯 modal ---------- */
+// 三欄任兩欄可推第三欄：台幣 / 美元 / 匯率
+function openFx(){
+  $('#xDate').value=new Date().toISOString().slice(0,10);
+  ['xTwd','xUsd','xRate'].forEach(i=>$('#'+i).value='');
+  $('#fxCalc').textContent='—';
+  $('#fxModal').classList.add('show');
+}
+function fxFields(){
+  return{twd:parseFloat($('#xTwd').value)||0,usd:parseFloat($('#xUsd').value)||0,rate:parseFloat($('#xRate').value)||0};
+}
+function fxResolve(){
+  let{twd,usd,rate}=fxFields();
+  if(twd>0&&usd>0)rate=twd/usd;
+  else if(twd>0&&rate>0)usd=twd/rate;
+  else if(usd>0&&rate>0)twd=usd*rate;
+  else return null;
+  return{twd,usd,rate};
+}
+function recalcFx(){
+  const r=fxResolve();
+  if(!r){$('#fxCalc').textContent='填任兩欄即可（台幣 / 美元 / 匯率）';return;}
+  const F=fxTotals();
+  const nUsd=F.usd+r.usd,nTwd=F.twd+r.twd;
+  $('#fxCalc').innerHTML=`本筆 <b>NT$ ${money(r.twd)}</b> → <b>$${fmt(r.usd,2)}</b> · 匯率 <b>${fmt(r.rate,4)}</b>`
+    +(F.usd>0?`<br>換匯後累計 <b>$${fmt(nUsd,2)}</b> · 均價匯率 <b>${fmt(nTwd/nUsd,4)}</b>`:'');
+}
+['xTwd','xUsd','xRate'].forEach(i=>$('#'+i).addEventListener('input',recalcFx));
+$('#fxSave').onclick=()=>{
+  const r=fxResolve();
+  if(!r||!(r.twd>0)||!(r.usd>0)){toast('請填任兩欄（台幣 / 美元 / 匯率）');return;}
+  state.fx.push({id:Date.now(),date:$('#xDate').value,twd:+r.twd.toFixed(2),usd:+r.usd.toFixed(2),rate:+r.rate.toFixed(4)});
+  save();render();$('#fxModal').classList.remove('show');toast('換匯已儲存');
+};
+{const b=$('#fxBtn');if(b)b.onclick=openFx;}
+function fxCard(f){
+  return `<div class="card"><div class="tx">
+    <div class="tag fx">⇄</div>
+    <div class="info"><div class="t1">換匯 <span class="cur usd">USD</span></div>
+      <div class="t2">${f.date||''} · 匯率 ${fmt(f.rate,4)}</div></div>
+    <div class="amt"><div class="num" style="color:var(--blue)">+$${fmt(f.usd,2)}</div>
+      <div class="a2 num">−NT$ ${money(f.twd)}</div></div>
+    <button class="del" data-del="fx" data-id="${f.id}">刪除</button>
+  </div></div>`;
+}
+function renderFxList(){
+  const wrap=$('#fxWrap'),btn=$('#fxBtn');
+  const show=mkt!=='tw';
+  if(btn)btn.style.display=show?'inline-flex':'none';
+  if(!wrap)return;
+  wrap.style.display=show?'block':'none';
+  if(!show)return;
+  const rows=[...(state.fx||[])].sort((a,b)=>(b.date||'').localeCompare(a.date||'')||b.id-a.id);
+  $('#fxList').innerHTML=rows.length?rows.map(fxCard).join('')
+    :`<div class="empty" style="padding:24px 20px"><div class="big">⇄</div>還沒有換匯紀錄<br>先記一筆，美元才有台幣成本</div>`;
+  bindDeletes();
+}
 
 /* ---------- dividend modal ---------- */
 let dMode='total';
@@ -855,9 +1131,11 @@ $('#divSave').onclick=()=>{
   if(dMode==='pershare'){const per=parseFloat($('#dPer').value);const sh=sharesHeldBefore(code,date);
     if(!per){toast('請填每股配息');return;}
     if(!sh){toast('該除息日前查無持股');return;}
-    amt=Math.round(sh*per);
+    amt=isUS(marketOfCode(code))?+(sh*per).toFixed(2):Math.round(sh*per);
   }else{amt=parseFloat($('#dAmt').value);if(!amt){toast('請填股利總額');return;}}
-  state.div.push({id:Date.now(),code,name:$('#dName').value.trim(),date,amt});
+  const rec={id:Date.now(),code,name:$('#dName').value.trim(),date,amt};
+  if(isUS(marketOfCode(code)))rec.cur='USD';          // 美股股利以美元記，進美元現金
+  state.div.push(rec);
   save();render();$('#divModal').classList.remove('show');toast('股利已儲存（已內扣成本）');
 };
 $('#fab').onclick=()=>openTx();   // FAB 只用於新增交易；股利不再手動輸入
@@ -867,6 +1145,33 @@ document.querySelectorAll('.modal').forEach(m=>m.onclick=e=>{if(e.target===m)m.c
 const TWSE_URL='https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL';   // 上市・前一交易日
 const TPEX_URL='https://www.tpex.org.tw/openapi/v1/tpex_mainboard_daily_close_quotes'; // 上櫃・前一交易日
 const MIS_URL='https://mis.twse.com.tw/stock/api/getStockInfo.jsp';            // 盤中・約5秒延遲
+// 美股與匯率：Yahoo chart（免 key）。v7/quote 批次端點已改為需授權，只能逐檔取。
+const YH='https://query1.finance.yahoo.com/v8/finance/chart/';
+function yhUrl(sym){return `${YH}${encodeURIComponent(sym)}?interval=1d&range=1d`;}
+// 抓一檔 Yahoo 報價 → {price,chg,name}
+async function fetchYahoo(sym){
+  const j=await fetchJson(yhUrl(sym));
+  const m=j&&j.chart&&j.chart.result&&j.chart.result[0]&&j.chart.result[0].meta;
+  if(!m||!(m.regularMarketPrice>0))return null;
+  const prev=m.chartPreviousClose||m.previousClose;
+  return{price:m.regularMarketPrice,chg:(prev>0)?m.regularMarketPrice-prev:null,name:m.shortName||m.longName||''};
+}
+// 美股逐檔 + USD/TWD 匯率
+async function fetchUs(holdings){
+  let n=0;
+  for(const h of holdings){
+    try{const q=await fetchYahoo(h.code);
+      if(q){state.prices[h.code]={price:q.price,chg:q.chg,name:q.name,t:Date.now(),live:true};n++;}
+    }catch(e){}
+  }
+  return n;
+}
+async function fetchRate(){
+  try{const q=await fetchYahoo('TWD=X');
+    if(q){state.prices.USDTWD={price:q.price,chg:q.chg,name:'USD/TWD',t:Date.now()};return true;}
+  }catch(e){}
+  return false;
+}
 function rocDate(s){if(!s||s.length<7)return'';const y=+s.slice(0,3)+1911,m=s.slice(3,5),d=s.slice(5,7);return `${y}/${m}/${d}`;}
 function fmtDate(s){if(!s)return'';return s.includes('-')?s.replace(/-/g,'/'):rocDate(s);} // TWSE/TPEx 為民國(1150618)，FinMind 為西元(2026-06-18)
 function finmindPriceUrl(code){const d=new Date(Date.now()-14*864e5).toISOString().slice(0,10);let u=`https://api.finmindtrade.com/api/v4/data?dataset=TaiwanStockPrice&data_id=${encodeURIComponent(code)}&start_date=${d}`;const tk=(state.settings.finmind||'').trim();if(tk)u+=`&token=${encodeURIComponent(tk)}`;return u;}
@@ -911,8 +1216,24 @@ async function fetchEod(holdings){
   return{n,asOf,total:holdings.length};
 }
 async function refreshPrices(silent){
-  const{holdings}=buildHoldings();
-  if(!holdings.length){if(!silent)toast('沒有持股可更新');return;}
+  const{holdings:allH}=buildHoldings();
+  const usH=allH.filter(h=>isUS(h.market)),twH=allH.filter(h=>!isUS(h.market));
+  // 美股與匯率：只要有美元部位就更新（美元現金也需要匯率換算）
+  if(usH.length||(state.fx||[]).length){
+    if(!cloudOn()){if(!silent&&mkt!=='tw')toast('美股報價需設定 Worker（CORS）');}
+    else{
+      $('#statusLine').textContent='更新美股報價中…';
+      const n=await fetchUs(usH);const gotRate=await fetchRate();
+      if(n||gotRate){save();render();}
+      if(mkt==='us'){
+        $('#statusLine').textContent=n?`美股報價 ${new Date().toLocaleTimeString('zh-TW',{hour:'2-digit',minute:'2-digit',hour12:false})}`:'美股報價讀取失敗';
+        if(!silent)toast(n?`已更新 ${n} 檔美股${gotRate?'＋匯率':''}`:'美股報價讀取失敗，可手動設價');
+        return;
+      }
+    }
+  }
+  const holdings=twH;
+  if(!holdings.length){if(!silent&&mkt==='tw')toast('沒有持股可更新');return;}
   const tryLive=cloudOn()&&liveUsable();   // 即時源需 Worker 代理（CORS）；盤後當日也用它（官方收盤源會延遲）
   $('#statusLine').textContent=(tryLive&&marketOpen())?'更新即時報價中…':'更新收盤價中…';
   if(tryLive){
@@ -941,7 +1262,8 @@ $('#refreshBtn').onclick=()=>refreshPrices(false);
 /* ---------- 自動抓取股利（FinMind） ---------- */
 function earliestDate(code){let m='';state.tx.forEach(t=>{if(t.code===code&&t.date&&(!m||t.date<m))m=t.date;});return m;}
 async function autoFetchDividends(){
-  const codes=[...new Set(state.tx.filter(t=>!t.auto).map(t=>t.code))];
+  // FinMind 只有台股；美股股利請手動輸入（或用券商月結單）
+  const codes=[...new Set(state.tx.filter(t=>!t.auto&&!isUS(t.market)).map(t=>t.code))];
   if(!codes.length){toast('沒有交易紀錄可比對');return;}
   const token=(state.settings.finmind||'').trim();
   const btn=$('#autoDivBtn');const old=btn.textContent;btn.textContent='抓取中…';btn.disabled=true;
@@ -1007,11 +1329,14 @@ function loadSettings(){
   const s=state.settings;
   const set=(id,v)=>{const el=$(id);if(el)el.value=v||'';};
   set('#setWorker',s.worker);set('#setSecret',s.secret);set('#setFinmind',s.finmind);set('#setFee',s.fee||'0.6');
+  set('#setUsFee',s.usFee||'0');set('#setUsdTwd',s.usdtwd||'');
 }
 {const w=$('#setWorker');if(w)w.addEventListener('input',e=>{state.settings.worker=e.target.value;save(false);});}
 {const s=$('#setSecret');if(s)s.addEventListener('input',e=>{state.settings.secret=e.target.value;save(false);});}
 {const f=$('#setFinmind');if(f)f.addEventListener('input',e=>{state.settings.finmind=e.target.value;save(false);});}
 $('#setFee').addEventListener('input',e=>{state.settings.fee=e.target.value;save();});
+$('#setUsFee').addEventListener('input',e=>{state.settings.usFee=e.target.value;save();});
+$('#setUsdTwd').addEventListener('input',e=>{state.settings.usdtwd=e.target.value;save();render();});
 {const b=$('#cloudTestBtn');if(b)b.onclick=async()=>{
   if(!cloudOn()){toast('請先填 Worker 網址與密碼');return;}
   b.textContent='測試中…';b.disabled=true;
@@ -1065,10 +1390,10 @@ $('#realizedModal').onclick=e=>{if(e.target.id==='realizedModal')$('#realizedMod
 
 /* ---------- init ---------- */
 $('#fab').style.display='none';        // 預設在總覽頁，＋只在交易頁顯示
-load();loadSettings();render();
+load();loadSettings();setMkt(mkt);            // setMkt 會同步 segmented 狀態並 render()
 (async function(){
   await cloudLoad();                                   // 先抓雲端最新資料（雲端為準）
-  const{holdings}=buildHoldings();if(!holdings.length)return;
+  const{holdings}=buildHoldings();if(!holdings.length&&!(state.fx||[]).length)return;
   const newest=Math.max(0,...Object.values(state.prices).map(p=>p&&p.t||0));
   // 盤中（有 Worker）每次開啟就抓即時；否則收盤價過期才抓
   if((cloudOn()&&marketOpen())||Date.now()-newest>6*3600*1000)refreshPrices(true);

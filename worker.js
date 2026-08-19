@@ -18,7 +18,8 @@
 
 const SECRET = "change-this-to-your-own-password";   // ← 改成你自己的密碼（App 設定要填一樣的）
 const KEY = "portfolio";                              // KV 裡存資料用的鍵
-const ALLOW = ["mis.twse.com.tw", "openapi.twse.com.tw", "www.tpex.org.tw", "api.finmindtrade.com"];
+const ALLOW = ["mis.twse.com.tw", "openapi.twse.com.tw", "www.tpex.org.tw", "api.finmindtrade.com",
+                "query1.finance.yahoo.com"];  // 美股報價與 USD/TWD 匯率
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
