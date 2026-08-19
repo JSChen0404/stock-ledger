@@ -63,6 +63,7 @@ header .sub:empty{display:none;}
 .chip-otc.us{background:#16283F;color:#7DB3FF;}
 /* 換匯紀錄 */
 .tag.fx{background:#EAF0FA;color:#3B6EA8;}
+.tag.split{background:#E9F1FE;color:var(--blue);}
 /* 合併檢視的幣別小計 */
 .subtot{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px;}
 .subtot .s{background:var(--surface);border-radius:12px;padding:10px 12px;}
@@ -910,6 +911,27 @@ function nameForCode(code){            // 自動帶入股票名稱：報價名�
   return'';
 }
 function txCard(t){
+  const us=isUS(t.market),U=us?'$':'',D=us?(n=>fmt(n,2)):money;
+  if(t.kind==='split'){                      // 股票分割：券商以 0 成本新增股數（NVDA 10:1 就是這樣入帳）
+    return `<div class="card"><div class="tx">
+      <div class="tag split">割</div>
+      <div class="info"><div class="t1">${t.code} <span style="color:var(--muted);font-weight:400">${t.name||nameForCode(t.code)} 分割</span></div>
+        <div class="t2">${t.date||''} · 股票分割，0 成本新增${t.ratio?' · 1 股換 '+t.ratio+' 股':''}</div></div>
+      <div class="amt"><div class="num" style="color:var(--blue)">+${fmt(t.qty,us?4:0)} 股</div>
+        <div class="a2 num">0 成本</div></div>
+      <button class="del" data-del="tx" data-id="${t.id}">刪除</button>
+    </div></div>`;
+  }
+  if(t.kind==='drip'){                       // 股利再投入：股利當下買回零碎股，成本淨影響為 0
+    return `<div class="card"><div class="tx">
+      <div class="tag div">息</div>
+      <div class="info"><div class="t1">${t.code} <span style="color:var(--muted);font-weight:400">${t.name||nameForCode(t.code)} 股利再投入</span></div>
+        <div class="t2">${t.date||''} · ${fmt(t.qty,4)} 股 @ ${U}${fmt(t.price,2)}</div></div>
+      <div class="amt"><div class="num" style="color:var(--gold)">+${fmt(t.qty,4)} 股</div>
+        <div class="a2 num">${U}${fmt(t.qty*t.price,2)}</div></div>
+      <button class="del" data-del="tx" data-id="${t.id}">刪除</button>
+    </div></div>`;
+  }
   if(t.kind==='stockdiv'){
     return `<div class="card"><div class="tx">
       <div class="tag div">配</div>
@@ -926,8 +948,8 @@ function txCard(t){
     <div class="tag ${t.side}">${t.side==='buy'?'買':'賣'}</div>
     <div class="info"><div class="t1">${t.code} <span style="color:var(--muted);font-weight:400">${t.name||nameForCode(t.code)}</span></div>
       <div class="t2">${t.date||''} · ${fmt(t.qty,isUS(t.market)?2:0)} 股 @ ${isUS(t.market)?'$':''}${fmt(t.price,2)}</div></div>
-    <div class="amt"><div class="num ${t.side==='buy'?'up':'down'}">${t.side==='buy'?'-':'+'}${money(net)}</div>
-      <div class="a2 num">費 ${fmt(t.fee||0)}${t.side==='sell'?' 稅 '+fmt(t.tax||0):''}</div></div>
+    <div class="amt"><div class="num ${t.side==='buy'?'up':'down'}">${t.side==='buy'?'-':'+'}${U}${D(net)}</div>
+      <div class="a2 num">費 ${U}${fmt(t.fee||0,us?2:0)}${t.side==='sell'?' 稅 '+U+fmt(t.tax||0,us?2:0):''}</div></div>
     <button class="del" data-del="tx" data-id="${t.id}">刪除</button>
   </div></div>`;
 }
