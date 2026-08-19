@@ -99,6 +99,10 @@ main{padding:0 16px calc(96px + env(safe-area-inset-bottom));max-width:560px;mar
 .tx .amt{text-align:right;font-weight:700;white-space:nowrap;}
 .tx .amt .a2{font-size:12px;color:var(--faint);margin-top:1px;font-weight:500;}
 .del{color:var(--faint);font-size:13px;padding:6px 8px;}
+/* 股利健檢：金額與持股數不符（分割未還原、或抓股利時買進還沒入帳） */
+.divwarn{color:var(--gold);font-weight:600;display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:2px;}
+.fixdiv{background:var(--gold);color:#fff;border:0;border-radius:8px;font:inherit;font-size:12px;font-weight:700;padding:3px 9px;cursor:pointer;}
+.fixdiv:active{opacity:.75;}
 
 .section-h{display:flex;justify-content:space-between;align-items:center;margin:18px 4px 9px;}
 .section-h h2{font-size:17px;font-weight:800;letter-spacing:.5px;margin:0;color:var(--text);}
@@ -551,6 +555,23 @@ function totalDiv(){return state.div.reduce((s,d)=>s+(d.amt||0),0);}
 // 依交易紀錄推算「某日（除息日）之前」持有的股數
 function sharesHeldBefore(code,exDate){let q=0;state.tx.forEach(t=>{if(t.code===code&&(t.date||'')<exDate)q+=t.side==='buy'?t.qty:-t.qty;});return Math.max(0,q);}
 
+/* ---------- 股票分割 ----------
+   本 App 無分割功能：分割前的交易靠手動「股數 ×n、單價 ÷n」輸入，帳上股數一律是「分割調整後」基準。
+   但 FinMind 回傳的每股配息是「當年的原始值」（分割前基準），直接乘上調整後股數會爆 n 倍。
+   ratio = 一股變幾股。新增分割時在這裡補一列即可。 */
+const SPLITS={'0050':[{date:'2025-06-18',ratio:4}]};
+// 除息日 exDate 當時的「每股金額」要除以多少，才能換算到目前帳上的調整後股數基準
+function splitFactor(code,exDate){
+  return (SPLITS[code]||[]).reduce((f,s)=>(exDate&&exDate<s.date)?f*s.ratio:f,1);
+}
+// 這筆現金股利的 amt 應該是多少。
+// 約定：per 一律存「當年原始回報值」（未還原分割），除以 splitFactor 才是調整後股數的基準。
+// 這樣分割沒還原的舊紀錄也驗得出來——若把 per 存成已調整值，amt=per×股數 會自洽而驗不出。
+function expectedDivAmt(d){
+  if(!d||!d.per||!d.date)return null;
+  return Math.round(sharesHeldBefore(d.code,d.date)*d.per/splitFactor(d.code,d.date));
+}
+
 /* ---------- render ---------- */
 function render(){
   const{holdings,realized,realizedList}=buildHoldings();
@@ -714,10 +735,17 @@ function txCard(t){
   </div></div>`;
 }
 function divCard(d){
+  // 健檢：amt 應等於「每股 × 除息日前持股數」。不符的原因通常是分割未還原、
+  // 或抓股利時該期的買進還沒入帳——兩者都不會報錯，只會讓報酬率安靜地偏高。
+  const exp=expectedDivAmt(d);
+  const off=(exp!=null&&exp>0&&Math.abs((d.amt||0)/exp-1)>0.02);
+  const sf=splitFactor(d.code,d.date);
   return `<div class="card"><div class="tx">
     <div class="tag div">息</div>
     <div class="info"><div class="t1">${d.code} <span style="color:var(--muted);font-weight:400">${d.name||nameForCode(d.code)}</span></div>
-      <div class="t2">${d.date||''}${d.per?' · 每股 '+fmt(d.per,2):''}</div></div>
+      <div class="t2">${d.date||''}${d.per?' · 每股 '+fmt(d.per,2):''}${sf>1?' <span style="color:var(--faint)">(分割前基準 ÷'+sf+')</span>':''}</div>
+      ${off?`<div class="t2 divwarn">⚠ 金額與 ${fmt(sharesHeldBefore(d.code,d.date))} 股不符，應為 ${money(exp)}
+        <button class="fixdiv" data-fixdiv="${d.id}">改成這個</button></div>`:''}</div>
     <div class="amt"><div class="num" style="color:var(--gold)">+${money(d.amt)}</div></div>
     <button class="del" data-del="div" data-id="${d.id}">刪除</button>
   </div></div>`;
@@ -731,6 +759,13 @@ function bindDeletes(){document.querySelectorAll('[data-del]').forEach(b=>b.oncl
   askConfirm('確定刪除這筆紀錄？',()=>{
     if(t==='tx')state.tx=state.tx.filter(x=>x.id!==id);else state.div=state.div.filter(x=>x.id!==id);
     save();render();toast('已刪除');
+  });
+});
+document.querySelectorAll('[data-fixdiv]').forEach(b=>b.onclick=e=>{
+  e.stopPropagation();const d=state.div.find(x=>x.id===+b.dataset.fixdiv);if(!d)return;
+  const exp=expectedDivAmt(d);if(exp==null)return;
+  askConfirm(`把 ${d.code} ${d.date} 的股利從 ${money(d.amt)} 改成 ${money(exp)}？`,()=>{
+    d.amt=exp;save();render();toast('已重算');
   });
 });}
 
@@ -946,8 +981,12 @@ async function autoFetchDividends(){
         if(r.exC.length>=8&&r.perC>0&&r.exC<=today){
           const sh=sharesHeldBefore(code,r.exC);
           const k=code+'@'+r.exC;
+          // 現金股利是絕對金額，與分割無關：帳上股數已 ×n，每股配息就要 ÷n 才不會多算 n 倍。
+          // （配股不必調整——它是比例，乘上已 ×n 的股數自然得到 ×n 的新股。）
+          // per 存原始值，換算只做在 amt 上，這樣 expectedDivAmt 才驗得出分割沒還原的紀錄。
           if(sh>0&&!exCash.has(k)){
-            state.div.push({id:Date.now()+Math.floor(Math.random()*1e6),code,name:'',date:r.exC,amt:Math.round(sh*r.perC),per:+r.perC.toFixed(4),auto:true});
+            state.div.push({id:Date.now()+Math.floor(Math.random()*1e6),code,name:'',date:r.exC,
+              amt:Math.round(sh*r.perC/splitFactor(code,r.exC)),per:+r.perC.toFixed(4),auto:true});
             exCash.add(k);addCash++;
           }
         }
