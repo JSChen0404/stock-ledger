@@ -65,7 +65,7 @@ header .sub:empty{display:none;}
 .tag.fx{background:#EAF0FA;color:#3B6EA8;}
 .tag.split{background:#E9F1FE;color:var(--blue);}
 /* 合併檢視的幣別小計 */
-.subtot{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px;}
+.subtot{display:grid;grid-template-columns:repeat(auto-fit,minmax(132px,1fr));gap:8px;margin-top:10px;}
 .subtot .s{background:var(--surface);border-radius:12px;padding:10px 12px;}
 .subtot .s .k{font-size:11.5px;color:var(--muted);font-weight:600;}
 .subtot .s .v{font-size:16.5px;font-weight:800;margin-top:2px;font-variant-numeric:tabular-nums;}
@@ -267,7 +267,7 @@ input[readonly]{opacity:.65;cursor:not-allowed;}
 
   <!-- 股利 -->
   <section class="view" id="v-div">
-    <div class="section-h"><h2>股利紀錄</h2><button class="btn sm" id="autoDivBtn">⟳ 自動抓取</button></div>
+    <div class="section-h"><h2>股利紀錄</h2><div style="display:flex;gap:8px"><button class="btn ghost sm" id="addDivBtn">＋ 手動新增</button><button class="btn sm" id="autoDivBtn">⟳ 自動抓取</button></div></div>
     <div class="hint" style="margin:0 4px 8px">依交易紀錄向 FinMind 抓各檔除息資料，用「除息日前持股 × 每股現金股利」自動建立並內扣成本。</div>
     <div class="field" style="margin:0 4px 10px"><input id="divFilter" placeholder="🔎 輸入股票代號篩選，例如 00679B" inputmode="text" autocapitalize="characters" autocomplete="off" style="text-transform:uppercase"></div>
     <div id="divList"></div>
@@ -581,22 +581,23 @@ function buildHoldings(){
     const t=e.tx,c=t.code;
     if(!map[c])map[c]={code:c,name:t.name||'',market:t.market||'tse',qty:0,cost:0,rawCost:0};
     const h=map[c];if(t.name)h.name=t.name;if(t.market)h.market=t.market;
-    const gross=t.qty*t.price;
-    if(t.side==='buy'){h.qty+=t.qty;h.cost+=gross+(t.fee||0);h.rawCost+=gross+(t.fee||0);}
+    if(t.side==='buy'){const gross=t.qty*t.price;h.qty+=t.qty;h.cost+=gross+(t.fee||0);h.rawCost+=gross+(t.fee||0);}
     else{ // sell：用內扣後均價算已實現；raw 另記以便顯示原始成本與已內扣股利
       const avg=h.qty>0?h.cost/h.qty:0;
       const rawAvg=h.qty>0?h.rawCost/h.qty:0;
       const sellQty=Math.min(t.qty,h.qty);
-      const proceeds=gross-(t.fee||0)-(t.tax||0);
+      // 成交金額必須用夾限後的股數：若賣出股數大於持股（打錯或漏記買進），
+      // 用原始 t.qty 會讓多賣的部分變成零成本純收入，已實現直接爆掉。
+      const proceeds=sellQty*t.price-(t.fee||0)-(t.tax||0);
       const pl=proceeds-avg*sellQty;
       if(isUS(t.market))realizedUs+=pl;else realized+=pl;
       realizedList.push({date:t.date||'',code:c,name:t.name||'',type:'sell',qty:sellQty,price:t.price,proceeds,cost:avg*sellQty,pl,cur:curOf(t.market)});
       h.cost-=avg*sellQty;h.rawCost-=rawAvg*sellQty;h.qty-=sellQty;
-      if(h.qty<=0){h.qty=0;h.cost=0;h.rawCost=0;}
+      if(h.qty<=QEPS){h.qty=0;h.cost=0;h.rawCost=0;}   // 零碎股相減會留浮點殘值，不能用 <=0
     }
   }
   const today=todayStr();
-  const holdings=Object.values(map).filter(h=>h.qty>0).map(h=>{
+  const holdings=Object.values(map).filter(h=>h.qty>QEPS).map(h=>{
     h.cur=curOf(h.market);                     // 'USD'（美股）或 'TWD'（台股）
     h.gross=h.rawCost;                         // 買入原始成本（剩餘股，未扣股利）
     h.divCredit=Math.max(0,h.rawCost-h.cost);  // 已內扣到剩餘股的股利（raw 與內扣後之差）
@@ -629,6 +630,7 @@ function sharesHeldBefore(code,exDate){let q=0;state.tx.forEach(t=>{if(t.code===
    總報酬可乾淨拆成兩塊，兩者相加等於台幣總報酬：
      選股貢獻(TWD) = (美元資產 − 換匯取得的美元) × 現匯率
      匯差損益(TWD) = 換匯取得的美元 × (現匯率 − 換匯均價匯率)          */
+const QEPS=1e-9;                 // 零碎股（美股）相減會留浮點殘值，股數歸零一律用此門檻
 const US='us';
 const isUS=m=>m===US;
 function curOf(market){return isUS(market)?'USD':'TWD';}
@@ -698,9 +700,12 @@ function combined(all){
   // 匯差只算在「實際換過去的本金」上；美元賺到的部分用現匯率換算，兩者相加＝台幣總報酬
   const fxPL=(r&&F.rate!=null)?F.usd*(r-F.rate):null;
   const pickPL=(r!=null)?(usAsset-F.usd)*r:null;            // 選股+股利貢獻（換成台幣）
-  return{twH,usH,twMv,twCost,twUpl:twH.filter(h=>h.mv!=null).reduce((s,h)=>s+h.upl,0),
+  // 投入本金：台股用「原始成本」（未內扣股利），才與換匯匯出的台幣同基準。
+  // 若用內扣後的 twCost，歷年股利會把分母吃掉，報酬率系統性虛高。
+  const twRawCost=twH.reduce((s,h)=>s+h.rawCost,0);
+  return{twH,usH,twMv,twCost,twRawCost,twUpl:twH.filter(h=>h.mv!=null).reduce((s,h)=>s+h.upl,0),
          usMv,usCost,cash,usAsset,usMvTwd,F,r,fxPL,pickPL,
-         totalMv:(twMv||0)+(usMvTwd||0),invested:twCost+F.twd};
+         totalMv:(twMv||0)+(usMvTwd||0),invested:twRawCost+F.twd};
 }
 function render(){
   const{holdings:allH,realized,realizedUs,realizedList}=buildHoldings();
@@ -718,12 +723,15 @@ function render(){
   if(isAll){
     $('#totalMv').textContent=C.r?money(C.totalMv):'—';
     const ce=$('#cellUpl');
-    const tot=(C.r!=null)?(C.totalMv-C.invested):null;
+    // 總損益 = 台股未實現 + 台股已實現 + 選股貢獻 + 匯差。
+    // 不能用「總資產 − 投入本金」：台股沒有現金帳戶，賣股所得離開帳本後那段損益會憑空消失
+    // （美元側則因 usdCash() 承接賣股所得而有算到，兩邊基準會不一致）。
+    const tot=(C.r!=null)?(C.twUpl+realized+C.pickPL+C.fxPL):null;
     ce.innerHTML=tot!=null?sign(tot)+money(tot):'—';ce.className='v num '+cls(tot||0);
-    $('#uplLbl').textContent='總損益 (含匯差)';
+    $('#uplLbl').textContent='總損益 (含已實現與匯差)';
     const cr=$('#cellReal');cr.innerHTML=C.fxPL!=null?sign(C.fxPL)+money(C.fxPL):'—';cr.className='v num '+cls(C.fxPL||0);
     $('#realLbl').textContent='匯差損益';
-    $('#realCell').style.cursor='default';
+    $('#realCell').style.cursor='default';$('#realCell').onclick=null;
     $('#totalCost').textContent=money(C.invested);
     $('#costLbl').textContent='投入本金 (TWD)';
     $('#cellDiv').textContent=C.pickPL!=null?sign(C.pickPL)+money(C.pickPL):'—';
@@ -735,7 +743,7 @@ function render(){
     $('#uplLbl').textContent='未實現損益';
     const cr=$('#cellReal');cr.textContent=sign(rz)+M(rz);cr.className='v num '+cls(rz);
     $('#realLbl').textContent='已實現損益 ›';
-    $('#realCell').style.cursor='pointer';
+    $('#realCell').style.cursor='pointer';$('#realCell').onclick=openRealizedModal;
     $('#totalCost').textContent=M(cost);
     $('#costLbl').textContent='内扣後成本';
     $('#cellDiv').textContent=M(div);$('#cellDiv').className='v num';
@@ -760,9 +768,14 @@ function render(){
   const st=$('#subTot');
   if(isAll){
     st.style.display='grid';
+    const rzTwd=realized+(C.r!=null?realizedUs*C.r:0);
     st.innerHTML=`<div class="s"><div class="k">台股市值</div><div class="v num">${money(C.twMv)}</div></div>`
       +`<div class="s"><div class="k">美元資產 · 換算</div><div class="v num">${C.usMvTwd!=null?money(C.usMvTwd):'—'}</div>`
-      +`<div class="k" style="margin-top:2px">${fmt(C.usAsset,2)} USD</div></div>`;
+      +`<div class="k" style="margin-top:2px">${fmt(C.usAsset,2)} USD</div></div>`
+      +`<div class="s" id="rzTile" style="cursor:pointer"><div class="k">已實現合計 ›</div>`
+      +`<div class="v num ${cls(rzTwd)}">${sign(rzTwd)}${money(rzTwd)}</div>`
+      +`<div class="k" style="margin-top:2px">台股 ${sign(realized)}${money(realized)}${realizedUs?' · 美股 '+sign(realizedUs)+'$'+fmt(realizedUs,2):''}</div></div>`;
+    {const t=$('#rzTile');if(t)t.onclick=openRealizedModal;}
   }else st.style.display='none';
 
   // overview holdings (compact, top items)
@@ -835,9 +848,13 @@ function realizedCard(r){
 }
 function openRealizedModal(){
   const list=lastRealized.filter(r=>mkt==='all'?true:(mkt==='us'?r.cur==='USD':r.cur!=='USD')).sort((a,b)=>(b.date||'').localeCompare(a.date||''));
-  const total=list.reduce((s,r)=>s+r.pl,0);
-  const uc=list.length&&list.every(r=>r.cur==='USD');
-  $('#realizedSum').innerHTML=`共 <b>${list.length}</b> 筆 · 已實現合計 <b class="${cls(total)}">${sign(total)}${uc?'$'+fmt(total,2):money(total)}</b>`;
+  // 兩種幣別絕不相加：分別列示小計
+  const twL=list.filter(r=>r.cur!=='USD'),usL=list.filter(r=>r.cur==='USD');
+  const twT=twL.reduce((s,r)=>s+r.pl,0),usT=usL.reduce((s,r)=>s+r.pl,0);
+  let sum=`共 <b>${list.length}</b> 筆`;
+  if(twL.length)sum+=` · 台股 <b class="${cls(twT)}">${sign(twT)}${money(twT)}</b>`;
+  if(usL.length)sum+=` · 美股 <b class="${cls(usT)}">${sign(usT)}$${fmt(usT,2)}</b>`;
+  $('#realizedSum').innerHTML=sum;
   $('#realizedItems').innerHTML=list.length?list.map(realizedCard).join('')
     :`<div class="empty"><div class="big">↺</div>還沒有已實現紀錄（賣出或賣光後配息才會產生）</div>`;
   $('#realizedModal').classList.add('show');
@@ -900,9 +917,9 @@ function boardCard(h,totMv,mvForWeight){
     </div>
     <div class="bdetail">
       <span>年化報酬率 <b class="${h.annPct!=null?cls(h.annPct):''}">${h.annPct!=null?sign(h.annPct)+fmt(h.annPct,1)+'%':'—'}</b></span>
-      <span>內扣均價 <b>${h.cost>0?fmt(h.avg,2):'—'}</b></span>
-      <span>內扣成本 <b>${money(h.cost)}</b></span>
-      ${h.divCredit?`<span>已領股利 <b style="color:var(--gold)">${money(h.divCredit)}</b></span>`:''}
+      <span>內扣均價 <b>${h.cost>0?U(h)+fmt(h.avg,2):'—'}</b></span>
+      <span>內扣成本 <b>${U(h)+D(h)(h.cost)}</b></span>
+      ${h.divCredit?`<span>已領股利 <b style="color:var(--gold)">${U(h)+D(h)(h.divCredit)}</b></span>`:''}
       <button class="btn ghost sm" data-price="${h.code}">✎ 設定股價</button>
     </div>
   </div>`;
@@ -1068,6 +1085,10 @@ $('#txSave').onclick=()=>{
   const code=$('#fCode').value.trim().toUpperCase(),q=parseFloat($('#fQty').value),p=parseFloat($('#fPrice').value);
   if(!code||!q||!p){toast('請填代號、股數、價格');return;}
   if(isUS($('#fMarket').value)&&!(state.fx||[]).length){toast('請先記一筆換匯，美元才有台幣成本');return;}
+  if(txSide==='sell'){                       // 賣超會讓已實現爆掉（多賣的部分變零成本收入），從輸入端擋掉
+    const held=state.tx.reduce((n,x)=>x.code===code?n+(x.side==='buy'?x.qty:-x.qty):n,0);
+    if(q>held+1e-9){toast(`賣出 ${fmt(q,2)} 股超過持股 ${fmt(held,2)} 股`);return;}
+  }
   state.tx.push({id:Date.now(),side:txSide,code,name:$('#fName').value.trim(),market:$('#fMarket').value,
     date:$('#fDate').value,qty:q,price:p,fee:parseFloat($('#fFee').value)||0,
     tax:txSide==='sell'?(parseFloat($('#fTax').value)||0):0});
@@ -1109,6 +1130,7 @@ $('#fxSave').onclick=()=>{
   save();render();$('#fxModal').classList.remove('show');toast('換匯已儲存');
 };
 {const b=$('#fxBtn');if(b)b.onclick=openFx;}
+{const b=$('#addDivBtn');if(b)b.onclick=openDiv;}
 function fxCard(f){
   return `<div class="card"><div class="tx">
     <div class="tag fx">⇄</div>
@@ -1157,7 +1179,9 @@ $('#divSave').onclick=()=>{
   if(dMode==='pershare'){const per=parseFloat($('#dPer').value);const sh=sharesHeldBefore(code,date);
     if(!per){toast('請填每股配息');return;}
     if(!sh){toast('該除息日前查無持股');return;}
-    amt=isUS(marketOfCode(code))?+(sh*per).toFixed(2):Math.round(sh*per);
+    // per 一律是「當年原始回報值」，除以分割係數才是帳上調整後股數的基準（與 expectedDivAmt 同）
+    const eff=per/splitFactor(code,date);
+    amt=isUS(marketOfCode(code))?+(sh*eff).toFixed(2):Math.round(sh*eff);
   }else{amt=parseFloat($('#dAmt').value);if(!amt){toast('請填股利總額');return;}}
   const rec={id:Date.now(),code,name:$('#dName').value.trim(),date,amt};
   if(isUS(marketOfCode(code)))rec.cur='USD';          // 美股股利以美元記，進美元現金
@@ -1384,7 +1408,12 @@ function openPriceModal(code){_priceCode=code;$('#priceTitle').textContent=`設�
   const p=state.prices[code];$('#pPrice').value=(p&&p.price)?p.price:'';
   $('#priceModal').classList.add('show');setTimeout(()=>$('#pPrice').focus(),120);}
 $('#priceSave').onclick=()=>{const v=parseFloat($('#pPrice').value);
-  if(!isNaN(v)&&v>0){state.prices[_priceCode]={price:v,manual:true,t:Date.now()};save();render();toast('股價已更新');}
+  if(!isNaN(v)&&v>0){
+    // 保留已抓到的官方名稱；chg 刻意不保留——手動價相對昨收的漲跌是未知的，
+    // 留著舊 chg 會讓今日損益用錯的基準去算。
+    const prev=state.prices[_priceCode]||{};
+    state.prices[_priceCode]={price:v,name:prev.name,manual:true,t:Date.now()};
+    save();render();toast('股價已更新');}
   $('#priceModal').classList.remove('show');};
 let _confirmCb=null;
 function askConfirm(msg,cb){$('#confirmMsg').textContent=msg;_confirmCb=cb;$('#confirmModal').classList.add('show');}
