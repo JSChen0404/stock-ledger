@@ -311,6 +311,14 @@ input[readonly]{opacity:.65;cursor:not-allowed;}
         <input id="setUsFee" class="num" style="width:78px;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:9px;color:var(--text);text-align:center" inputmode="decimal">
       </div>
       <div class="set-item">
+        <div class="l"><div class="t">美股股利扣繳率 %</div><div class="d">非美國居民一般為 30%。抓股利時以「毛額 ×(1−此率)」記入實收淨額。TSM 等 ADR 的外國稅率不同，抓完可個別修改。</div></div>
+        <input id="setWht" class="num" style="width:78px;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:9px;color:var(--text);text-align:center" inputmode="decimal">
+      </div>
+      <div class="set-item">
+        <div class="l"><div class="t">美股股利再投入 (DRIP)</div><div class="d">開啟時，抓到的每筆美股股利會同時建立一筆零碎股買進（金額＝淨額），成本淨影響為 0、股數增加，與券商作法一致。</div></div>
+        <input type="checkbox" id="setDrip" style="width:22px;height:22px;accent-color:var(--brand)">
+      </div>
+      <div class="set-item">
         <div class="l"><div class="t">USD/TWD 匯率</div><div class="d">留空＝自動抓 Yahoo。填數字則固定用它換算。</div></div>
         <input id="setUsdTwd" class="num" style="width:78px;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:9px;color:var(--text);text-align:center" inputmode="decimal" placeholder="自動">
       </div>
@@ -465,7 +473,7 @@ const store=(()=>{let mem={},ok=false;try{localStorage.setItem('__t','1');localS
 const K='ledger.v1';
 // fx[] = 換匯紀錄 {id,date,twd,usd,rate}：美元是一個部位，有自己的台幣加權平均成本。
 // 美股交易一律以美元計價（tx.market==='us'），匯率換算只發生在「全部」合併檢視。
-function baseState(){return{tx:[],div:[],fx:[],prices:{},settings:{worker:'',secret:'',proxy:'',fee:'0.6',finmind:'',usFee:'0',usdtwd:''},updatedAt:0};}
+function baseState(){return{tx:[],div:[],fx:[],prices:{},settings:{worker:'',secret:'',proxy:'',fee:'0.6',finmind:'',usFee:'0',usdtwd:'',wht:'30',drip:'1'},updatedAt:0};}
 let state=baseState();
 function load(){try{const r=store.get(K);if(r)state=Object.assign(baseState(),JSON.parse(r));}catch(e){}
  if(!state.settings)state.settings=baseState().settings;if(!state.prices)state.prices={};
@@ -877,9 +885,12 @@ function openRealizedModal(){
 // 只是檢視狀態，不上雲；存本機讓重開 App 記得上次看哪個市場。
 const MK='ledger_mkt';
 let mkt=(()=>{const v=store.get(MK);return (v==='us'||v==='all')?v:'tw';})();
+let lastSingle=mkt==='all'?'tw':mkt;   // 記住上次看的單一市場，離開總覽時退回這個
+let view='overview';
 function inMkt(m){return mkt==='all'?true:(mkt==='us'?isUS(m):!isUS(m));}
 function setMkt(m){
   mkt=m;store.set(MK,m);
+  if(m!=='all')lastSingle=m;
   document.querySelectorAll('#mktSeg button').forEach(b=>{
     const on=b.dataset.m===m;b.classList.toggle('on',on);b.setAttribute('aria-selected',on?'true':'false');
   });
@@ -1033,8 +1044,17 @@ document.querySelectorAll('nav button').forEach(b=>b.onclick=()=>{
   document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
   $('#v-'+b.dataset.v).classList.add('active');
   $('#fab').style.display=(b.dataset.v==='tx')?'grid':'none';  // ＋只用於新增交易，僅交易頁顯示
+  view=b.dataset.v;applyMktScope();
   window.scrollTo(0,0);
 });
+// 「全部」是跨幣別的合併檢視，只有總覽有意義；其他頁面（持股/交易/股利/設定）
+// 都是逐筆清單，混幣列在一起沒有用，所以在那些頁面把該選項收起來。
+function applyMktScope(){
+  const allOk=view==='overview';
+  const btn=document.querySelector('#mktSeg button[data-m="all"]');
+  if(btn)btn.style.display=allOk?'':'none';
+  if(!allOk&&mkt==='all')setMkt(lastSingle);   // 從總覽切走時退回上次看的單一市場
+}
 
 /* ---------- transaction modal ---------- */
 let txSide='buy';
@@ -1323,18 +1343,75 @@ async function refreshPrices(silent){
 $('#refreshBtn').onclick=()=>refreshPrices(false);
 {const b2=$('#refreshBtn2');if(b2)b2.onclick=()=>refreshPrices(false);}
 
+/* ---------- 自動抓取美股股利（Yahoo chart events=div） ----------
+   Yahoo 回的是「除息日 + 每股毛額」。實收要扣非美國居民扣繳（預設 30%）。
+   若開啟 DRIP，同時建立一筆金額＝淨額的零碎股買進（成本淨影響 0、股數增加），
+   否則只記股利會壓低成本卻不增加股數，反而算錯。
+   去重：既有紀錄用「配發日」、Yahoo 用「除息日」，日期會差幾天到一個月，
+   所以同代號 ±45 天內已有紀錄就視為同一次，避免整段歷史被重複加入。            */
+async function fetchUsDividends(codes){
+  const wht=Math.min(100,Math.max(0,parseFloat(state.settings.wht)||0))/100;
+  const drip=(state.settings.drip==null||state.settings.drip!=='0');
+  const today=todayStr();
+  let addDiv=0,addDrip=0,fail=0;
+  for(const code of codes){
+    try{
+      const j=await fetchJson(`${YH}${encodeURIComponent(code)}?interval=1d&range=10y&events=div`);
+      const R=j&&j.chart&&j.chart.result&&j.chart.result[0];
+      const ev=R&&R.events&&R.events.dividends;
+      if(!ev)continue;
+      // 收盤價序列，用來算 DRIP 的成交價
+      const ts=(R.timestamp||[]),cl=((R.indicators&&R.indicators.quote&&R.indicators.quote[0]&&R.indicators.quote[0].close)||[]);
+      const closeOn=d=>{const n=_dayNum(d);let best=null,bd=Infinity;
+        for(let i=0;i<ts.length;i++){const c=cl[i];if(c==null)continue;
+          const diff=ts[i]*1000-n;if(diff>=0&&diff<bd){bd=diff;best=c;}}
+        return best;};
+      const mine=state.div.filter(x=>x.code===code&&x.date);
+      for(const e of Object.values(ev).sort((a,b)=>a.date-b.date)){
+        const ex=new Date(e.date*1000).toISOString().slice(0,10);
+        if(ex>today)continue;
+        const per=+e.amount;if(!(per>0))continue;
+        const sh=sharesHeldBefore(code,ex);if(!(sh>0))continue;
+        // ±45 天內已有同代號紀錄 → 視為已入帳
+        if(mine.some(x=>Math.abs(_dayNum(x.date)-_dayNum(ex))<=45*864e5))continue;
+        const gross=sh*per, net=+(gross*(1-wht)).toFixed(2);
+        if(!(net>0))continue;
+        state.div.push({id:Date.now()+Math.floor(Math.random()*1e6),code,name:'',date:ex,
+          amt:net,per:+per.toFixed(6),cur:'USD',gross:+gross.toFixed(2),wht:+(gross-net).toFixed(2),auto:true});
+        mine.push({code,date:ex});addDiv++;
+        if(drip){
+          const px=closeOn(ex);
+          if(px>0){const q=+(net/px).toFixed(5);
+            if(q>0)state.tx.push({id:Date.now()+Math.floor(Math.random()*1e6),side:'buy',kind:'drip',
+              code,name:'',market:'us',date:ex,qty:q,price:+px.toFixed(4),fee:0,tax:0,auto:true});
+            addDrip++;}
+        }
+      }
+    }catch(e){fail++;}
+  }
+  return{addDiv,addDrip,fail};
+}
+
 /* ---------- 自動抓取股利（FinMind） ---------- */
 function earliestDate(code){let m='';state.tx.forEach(t=>{if(t.code===code&&t.date&&(!m||t.date<m))m=t.date;});return m;}
 async function autoFetchDividends(){
   // FinMind 只有台股；美股股利請手動輸入（或用券商月結單）
   const codes=[...new Set(state.tx.filter(t=>!t.auto&&!isUS(t.market)).map(t=>t.code))];
-  if(!codes.length){toast('沒有交易紀錄可比對');return;}
+  const usCodes=[...new Set(state.tx.filter(t=>!t.auto&&isUS(t.market)).map(t=>t.code))];
+  if(!codes.length&&!usCodes.length){toast('沒有交易紀錄可比對');return;}
   const token=(state.settings.finmind||'').trim();
   const btn=$('#autoDivBtn');const old=btn.textContent;btn.textContent='抓取中…';btn.disabled=true;
   const exCash=new Set(state.div.map(d=>d.code+'@'+d.date));
   const exStockSet=new Set(state.tx.filter(t=>t.auto&&t.kind==='stockdiv').map(t=>t.code+'@'+t.date));
-  let addCash=0,addStock=0,fail=0;
+  let addCash=0,addStock=0,fail=0,usDiv=0,usDrip=0;
   const today=todayStr();  // 只計算已除息（≤今天）的事件，不算未來
+  // 美股走 Yahoo（FinMind 沒有美股資料）
+  if(usCodes.length&&cloudOn()){
+    btn.textContent='抓美股股利…';
+    const u=await fetchUsDividends(usCodes);
+    usDiv=u.addDiv;usDrip=u.addDrip;fail+=u.fail;
+    btn.textContent='抓取中…';
+  }
   for(const code of codes){
     const start=earliestDate(code)||'2015-01-01';
     const divUrl=ds=>{let u=`https://api.finmindtrade.com/api/v4/data?dataset=${ds}&data_id=${encodeURIComponent(code)}&start_date=${start}`;if(token)u+=`&token=${encodeURIComponent(token)}`;return u;};
@@ -1382,6 +1459,7 @@ async function autoFetchDividends(){
   save();render();
   btn.textContent=old;btn.disabled=false;
   const parts=[];if(addCash)parts.push(`現金股利 ${addCash} 筆`);if(addStock)parts.push(`配股 ${addStock} 次`);
+  if(usDiv)parts.push(`美股股利 ${usDiv} 筆${usDrip?`（含再投入 ${usDrip} 筆）`:''}`);
   if(parts.length)toast(`自動帶入 ${parts.join('、')}${fail?`（${fail} 檔失敗）`:''}`);
   else if(fail)toast('讀取被擋下，請在設定填代理或稍後再試');
   else toast('沒有可帶入的新股利');
@@ -1393,7 +1471,8 @@ function loadSettings(){
   const s=state.settings;
   const set=(id,v)=>{const el=$(id);if(el)el.value=v||'';};
   set('#setWorker',s.worker);set('#setSecret',s.secret);set('#setFinmind',s.finmind);set('#setFee',s.fee||'0.6');
-  set('#setUsFee',s.usFee||'0');set('#setUsdTwd',s.usdtwd||'');
+  set('#setUsFee',s.usFee||'0');set('#setUsdTwd',s.usdtwd||'');set('#setWht',s.wht||'30');
+  {const c=$('#setDrip');if(c)c.checked=(s.drip==null?true:s.drip!=='0');}
 }
 {const w=$('#setWorker');if(w)w.addEventListener('input',e=>{state.settings.worker=e.target.value;save(false);});}
 {const s=$('#setSecret');if(s)s.addEventListener('input',e=>{state.settings.secret=e.target.value;save(false);});}
@@ -1401,6 +1480,8 @@ function loadSettings(){
 $('#setFee').addEventListener('input',e=>{state.settings.fee=e.target.value;save();});
 $('#setUsFee').addEventListener('input',e=>{state.settings.usFee=e.target.value;save();});
 $('#setUsdTwd').addEventListener('input',e=>{state.settings.usdtwd=e.target.value;save();render();});
+$('#setWht').addEventListener('input',e=>{state.settings.wht=e.target.value;save();});
+$('#setDrip').addEventListener('change',e=>{state.settings.drip=e.target.checked?'1':'0';save();});
 {const b=$('#cloudTestBtn');if(b)b.onclick=async()=>{
   if(!cloudOn()){toast('請先填 Worker 網址與密碼');return;}
   b.textContent='測試中…';b.disabled=true;
@@ -1459,7 +1540,7 @@ $('#realizedModal').onclick=e=>{if(e.target.id==='realizedModal')$('#realizedMod
 
 /* ---------- init ---------- */
 $('#fab').style.display='none';        // 預設在總覽頁，＋只在交易頁顯示
-load();loadSettings();setMkt(mkt);            // setMkt 會同步 segmented 狀態並 render()
+load();loadSettings();applyMktScope();setMkt(mkt);            // setMkt 會同步 segmented 狀態並 render()
 (async function(){
   await cloudLoad();                                   // 先抓雲端最新資料（雲端為準）
   const{holdings}=buildHoldings();if(!holdings.length&&!(state.fx||[]).length)return;
