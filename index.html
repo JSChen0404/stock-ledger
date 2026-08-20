@@ -82,8 +82,10 @@ main{padding:0 16px calc(96px + env(safe-area-inset-bottom));max-width:560px;mar
 .hero .lbl{font-size:13px;color:var(--muted);letter-spacing:1px;}
 .hero-top{display:flex;align-items:baseline;justify-content:space-between;gap:10px;}
 .hero .big{font-size:18.5px;font-weight:700;color:var(--text);}
-.hero .pl{font-size:17px;font-weight:700;display:flex;align-items:baseline;gap:8px;margin-top:4px;}
-.hero .pl .pct{font-size:14px;opacity:.9;}
+.hero .pl{display:flex;align-items:baseline;gap:9px;flex-wrap:wrap;margin-top:11px;padding-top:11px;border-top:1px solid var(--line);}
+.hero .pl .v{font-size:25px;font-weight:800;letter-spacing:-.02em;}
+.hero .pl .pct{font-size:15px;font-weight:700;opacity:.92;}
+.hero .pl .plk{font-size:12px;color:var(--muted);margin-left:auto;align-self:center;}
 .hero-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:14px;}
 .hero-grid .cell{border-radius:13px;padding:11px 13px;}
 .hero-grid .cell .k{font-size:12.5px;color:var(--muted);}
@@ -227,6 +229,7 @@ input[readonly]{opacity:.65;cursor:not-allowed;}
   <section class="view active" id="v-overview">
     <div class="hero">
       <div class="hero-top"><div class="lbl" id="mvLbl">總市值 (TWD)</div><div class="big num" id="totalMv">—</div></div>
+      <div class="pl" id="heroPL" style="display:none"></div>
       <div class="hero-grid">
         <div class="cell tint-pl"><div class="k" id="uplLbl">未實現損益</div><div class="v num" id="cellUpl">—</div></div>
         <div class="cell tint-blue" id="realCell" style="cursor:pointer"><div class="k" id="realLbl">已實現損益 ›</div><div class="v num" id="cellReal">—</div></div>
@@ -707,6 +710,8 @@ function combined(all){
          usMv,usCost,cash,usAsset,usMvTwd,F,r,fxPL,pickPL,
          totalMv:(twMv||0)+(usMvTwd||0),invested:twRawCost+F.twd};
 }
+// 顯示/隱藏 hero 的某一格（傳入格內數值元素的選擇器）
+function hideCell(sel,hide){const c=$(sel)&&$(sel).closest('.cell');if(c)c.style.display=hide?'none':'';}
 function render(){
   const{holdings:allH,realized,realizedUs,realizedList}=buildHoldings();
   lastRealized=realizedList;
@@ -727,16 +732,22 @@ function render(){
     // 不能用「總資產 − 投入本金」：台股沒有現金帳戶，賣股所得離開帳本後那段損益會憑空消失
     // （美元側則因 usdCash() 承接賣股所得而有算到，兩邊基準會不一致）。
     const tot=(C.r!=null)?(C.twUpl+realized+C.pickPL+C.fxPL):null;
-    ce.innerHTML=tot!=null?sign(tot)+money(tot):'—';ce.className='v num '+cls(tot||0);
-    $('#uplLbl').textContent='總損益 (含已實現與匯差)';
+    const totPct=(tot!=null&&C.invested>0)?tot/C.invested*100:null;
+    // 全部檢視：總損益提升為主損益列（緊接總資產），下方只留兩格。
+    // 「選股貢獻」不顯示，但仍是 tot 的計算成分。
+    const pl=$('#heroPL');pl.style.display='flex';
+    pl.innerHTML=`<span class="v num ${cls(tot||0)}">${tot!=null?sign(tot)+money(tot):'—'}</span>`
+      +`${totPct!=null?`<span class="pct num ${cls(totPct)}">${sign(totPct)}${fmt(totPct,1)}%</span>`:''}`
+      +`<span class="plk">總損益 · 含已實現與匯差</span>`;
+    hideCell('#cellUpl',true);hideCell('#cellDiv',true);
+    hideCell('#totalCost',false);hideCell('#cellReal',false);
+    $('#totalCost').closest('.cell').style.order='1';
+    $('#realCell').style.order='2';
     const cr=$('#cellReal');cr.innerHTML=C.fxPL!=null?sign(C.fxPL)+money(C.fxPL):'—';cr.className='v num '+cls(C.fxPL||0);
     $('#realLbl').textContent='匯差損益';
     $('#realCell').style.cursor='default';$('#realCell').onclick=null;
     $('#totalCost').textContent=money(C.invested);
     $('#costLbl').textContent='投入本金 (TWD)';
-    // 「選股貢獻」不顯示（仍是上面 tot 的計算成分）。隱藏該格，讓投入本金佔滿整列。
-    {const d=$('#cellDiv').closest('.cell');if(d)d.style.display='none';}
-    {const c=$('#totalCost').closest('.cell');if(c)c.style.gridColumn='1/-1';}
   }else{
     $('#totalMv').textContent=isUs?M(S.mv+C.cash):money(S.mv);
     const ce=$('#cellUpl');ce.innerHTML=(holdings.length?sign(upl)+M(upl)+' <span class="subpct">('+sign(uplPct)+fmt(uplPct,1)+'%)</span>':'—');ce.className='v num '+cls(upl);
@@ -746,8 +757,9 @@ function render(){
     $('#realCell').style.cursor='pointer';$('#realCell').onclick=openRealizedModal;
     $('#totalCost').textContent=M(cost);
     $('#costLbl').textContent='內扣後成本';
-    {const d=$('#cellDiv').closest('.cell');if(d)d.style.display='';}
-    {const c=$('#totalCost').closest('.cell');if(c)c.style.gridColumn='';}
+    $('#heroPL').style.display='none';
+    ['#cellUpl','#cellReal','#totalCost','#cellDiv'].forEach(x=>hideCell(x,false));
+    $('#totalCost').closest('.cell').style.order='';$('#realCell').style.order='';
     $('#cellDiv').textContent=M(div);$('#cellDiv').className='v num';
     $('#divLbl').textContent='累積股利 · 已內扣';
   }
