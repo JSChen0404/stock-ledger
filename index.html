@@ -747,10 +747,14 @@ function render(){
   else{
     rb.style.display='flex';
     const pr=state.prices.USDTWD;
-    rb.innerHTML=`<span>USD/TWD <b>${C.r?fmt(C.r,3):'—'}</b>`
-      +`${pr&&pr.t?` <span style="opacity:.6">${new Date(pr.t).toLocaleDateString('zh-TW')}</span>`:''}`
-      +`${C.F.rate!=null?` · 換匯均價 <b>${fmt(C.F.rate,3)}</b>`:''}</span>`
-      +`<span>美元現金 <b>${fmt(C.cash,2)}</b></span>`;
+    // 美股頁純美元思考，不顯示匯率；匯率只在「全部」（合併換算）才有意義
+    rb.innerHTML=(mkt==='us'
+      ? `<span>美元現金 <b>$${fmt(C.cash,2)}</b></span>`
+        +`<span>已投入 <b>$${fmt(C.F.usd-C.cash,2)}</b> / 匯入 $${fmt(C.F.usd,2)}</span>`
+      : `<span>USD/TWD <b>${C.r?fmt(C.r,3):'—'}</b>`
+        +`${pr&&pr.t?` <span style="opacity:.6">${new Date(pr.t).toLocaleDateString('zh-TW')}</span>`:''}`
+        +`${C.F.rate!=null?` · 換匯均價 <b>${fmt(C.F.rate,3)}</b>`:''}</span>`
+        +`<span>美元現金 <b>$${fmt(C.cash,2)}</b></span>`);
   }
   // 合併檢視的兩幣別小計
   const st=$('#subTot');
@@ -866,7 +870,7 @@ function holdingCard(h){
       <div><span class="code">${h.code}</span> <span class="chip ${mkTag(h.market).c}">${mkTag(h.market).t}</span>${h.name?` <span class="name">${h.name}</span>`:''}</div>
       <div><div class="mv num">${priced?U(h)+D(h)(h.mv):'未報價'}</div>
         <div class="plr num ${dir}">${priced?sign(h.upl)+U(h)+D(h)(h.upl)+' ('+sign(h.uplPct)+fmt(h.uplPct,1)+'%)':'點此設股價'}</div>
-        ${(priced&&h.cur==='USD'&&usdRate())?`<div class="plr num" style="color:var(--faint);font-size:12px">≈ NT$ ${money(h.mv*usdRate())}</div>`:''}</div>
+        ${(mkt==='all'&&priced&&h.cur==='USD'&&usdRate())?`<div class="plr num" style="color:var(--faint);font-size:12px">≈ NT$ ${money(h.mv*usdRate())}</div>`:''}</div>
     </div>
     <div class="detail">
       <div><div class="k">股數</div><div class="v num">${fmt(h.qty)}</div></div>
@@ -1041,7 +1045,7 @@ function recalcTx(){
   let txt=`成交 <b>${U}${D(gross)}</b> · 手續費 <b>${U}${fmt(fee,us?2:0)}</b>`;
   if(sell)txt+=` · ${us?'SEC 費':'證交稅'} <b>${U}${fmt(tax,us?2:0)}</b>`;
   txt+=` · ${sell?'實收':'實付'} <b>${U}${D(net)}</b>`;
-  if(us){const r=usdRate();if(r)txt+=`<br><span style="opacity:.75">約 NT$ ${money(net*r)}（匯率 ${fmt(r,3)}）</span>`;}
+  if(us&&mkt==='all'){const r=usdRate();if(r)txt+=`<br><span style="opacity:.75">約 NT$ ${money(net*r)}（匯率 ${fmt(r,3)}）</span>`;}
   $('#txCalc').innerHTML=txt;
 }
 ['fQty','fPrice'].forEach(i=>$('#'+i).addEventListener('input',recalcTx));
