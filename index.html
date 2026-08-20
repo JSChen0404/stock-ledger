@@ -734,9 +734,9 @@ function render(){
     $('#realCell').style.cursor='default';$('#realCell').onclick=null;
     $('#totalCost').textContent=money(C.invested);
     $('#costLbl').textContent='投入本金 (TWD)';
-    $('#cellDiv').textContent=C.pickPL!=null?sign(C.pickPL)+money(C.pickPL):'—';
-    $('#cellDiv').className='v num '+cls(C.pickPL||0);
-    $('#divLbl').textContent='選股貢獻 (TWD)';
+    // 「選股貢獻」不顯示（仍是上面 tot 的計算成分）。隱藏該格，讓投入本金佔滿整列。
+    {const d=$('#cellDiv').closest('.cell');if(d)d.style.display='none';}
+    {const c=$('#totalCost').closest('.cell');if(c)c.style.gridColumn='1/-1';}
   }else{
     $('#totalMv').textContent=isUs?M(S.mv+C.cash):money(S.mv);
     const ce=$('#cellUpl');ce.innerHTML=(holdings.length?sign(upl)+M(upl)+' <span class="subpct">('+sign(uplPct)+fmt(uplPct,1)+'%)</span>':'—');ce.className='v num '+cls(upl);
@@ -745,9 +745,11 @@ function render(){
     $('#realLbl').textContent='已實現損益 ›';
     $('#realCell').style.cursor='pointer';$('#realCell').onclick=openRealizedModal;
     $('#totalCost').textContent=M(cost);
-    $('#costLbl').textContent='内扣後成本';
+    $('#costLbl').textContent='內扣後成本';
+    {const d=$('#cellDiv').closest('.cell');if(d)d.style.display='';}
+    {const c=$('#totalCost').closest('.cell');if(c)c.style.gridColumn='';}
     $('#cellDiv').textContent=M(div);$('#cellDiv').className='v num';
-    $('#divLbl').textContent='累積股利 · 已内扣';
+    $('#divLbl').textContent='累積股利 · 已內扣';
   }
   // 匯率列 + 美元現金（美股/全部才顯示）
   const rb=$('#rateBar');
