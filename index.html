@@ -128,6 +128,16 @@ main{padding:0 16px calc(96px + env(safe-area-inset-bottom));max-width:560px;mar
 .fixdiv{background:var(--gold);color:#fff;border:0;border-radius:8px;font:inherit;font-size:12px;font-weight:700;padding:3px 9px;cursor:pointer;}
 .fixdiv:active{opacity:.75;}
 
+/* 股利年度篩選（以日曆年為單位）＋ 篩選後小計 */
+.yrbar{display:flex;gap:6px;overflow-x:auto;padding:1px 4px 3px;margin:0 0 10px;-webkit-overflow-scrolling:touch;scrollbar-width:none;}
+.yrbar::-webkit-scrollbar{display:none;}
+.yrbar button{flex:0 0 auto;background:var(--card);border:1.5px solid var(--line);border-radius:999px;padding:6px 14px;font-size:13px;font-weight:700;color:var(--muted);transition:background .15s,color .15s,border-color .15s;}
+.yrbar button.on{background:var(--gold);border-color:var(--gold);color:#fff;}
+.yrbar button:not(.on):active{background:var(--surface);}
+.divsum{display:flex;justify-content:space-between;align-items:baseline;gap:10px;background:#FFF8EC;border:1px solid #F6E3C4;border-radius:11px;padding:9px 12px;margin:0 4px 10px;}
+.divsum .k{font-size:12.5px;color:var(--muted);font-weight:600;}
+.divsum .v{font-size:15px;font-weight:800;color:var(--gold);}
+
 .section-h{display:flex;justify-content:space-between;align-items:center;margin:18px 4px 9px;}
 .section-h h2{font-size:17px;font-weight:800;letter-spacing:.5px;margin:0;color:var(--text);}
 .empty{text-align:center;color:var(--faint);padding:44px 20px;font-size:15px;}
@@ -273,6 +283,8 @@ input[readonly]{opacity:.65;cursor:not-allowed;}
     <div class="section-h"><h2>股利紀錄</h2><div style="display:flex;gap:8px"><button class="btn ghost sm" id="addDivBtn">＋ 手動新增</button><button class="btn sm" id="autoDivBtn">⟳ 自動抓取</button></div></div>
     <div class="hint" style="margin:0 4px 8px">依交易紀錄向 FinMind 抓各檔除息資料，用「除息日前持股 × 每股現金股利」自動建立並內扣成本。</div>
     <div class="field" style="margin:0 4px 10px"><input id="divFilter" placeholder="🔎 輸入股票代號篩選，例如 00679B" inputmode="text" autocapitalize="characters" autocomplete="off" style="text-transform:uppercase"></div>
+    <div class="yrbar" id="divYears"></div>
+    <div class="divsum" id="divSum" style="display:none"></div>
     <div id="divList"></div>
   </section>
 
@@ -837,17 +849,48 @@ function render(){
   renderDivList();
 }
 // 交易與股利清單共用：日期新→舊排序、代號子字串篩選（大小寫不分）、空狀態
-function renderList(el,arr,filter,cardFn,icon,word){
+function renderList(el,arr,filter,cardFn,icon,word,pre,preLbl){
   if(!el)return;
   const f=filter.trim().toUpperCase();
   let rows=[...arr].sort((a,b)=>(b.date||'').localeCompare(a.date||'')||b.id-a.id);
+  if(pre)rows=rows.filter(pre);            // 年度等前置條件（不影響「完全沒資料」的判斷）
   if(f)rows=rows.filter(x=>(x.code||'').toUpperCase().includes(f));
+  const cond=[preLbl||'',f?'「'+f+'」':''].filter(Boolean).join('・')||'條件';
   el.innerHTML=rows.length?rows.map(cardFn).join('')
-    :`<div class="empty"><div class="big">${icon}</div>${arr.length?'查無符合「'+f+'」的'+word:'還沒有'+word}</div>`;
+    :`<div class="empty"><div class="big">${icon}</div>${arr.length?'查無符合'+cond+'的'+word:'還沒有'+word}</div>`;
   bindDeletes();
 }
 let divFilter='';
-function renderDivList(){renderList($('#divList'),state.div.filter(d=>inMkt(marketOfCode(d.code))),divFilter,divCard,'$','股利紀錄');}
+let divYear='all';                          // 'all' 或 '2026' 這種四位數西元年
+// 現有股利資料裡出現過的年度（依目前市場分頁），新→舊
+function divYearsAvail(){
+  const s=new Set();
+  state.div.forEach(d=>{if(inMkt(marketOfCode(d.code))&&(d.date||'').length>=4)s.add(d.date.slice(0,4));});
+  return [...s].sort((a,b)=>b.localeCompare(a));
+}
+function renderDivYears(){
+  const el=$('#divYears');if(!el)return;
+  const ys=divYearsAvail();
+  if(divYear!=='all'&&!ys.includes(divYear))divYear='all';   // 切市場/刪光該年後回全部
+  el.innerHTML=ys.length?['all',...ys].map(y=>`<button data-yr="${y}"${y===divYear?' class="on"':''}>${y==='all'?'全部':y}</button>`).join(''):'';
+  el.style.display=ys.length?'':'none';
+  el.querySelectorAll('[data-yr]').forEach(b=>b.onclick=()=>{divYear=b.dataset.yr;renderDivList();});
+}
+function renderDivList(){
+  renderDivYears();
+  const base=state.div.filter(d=>inMkt(marketOfCode(d.code)));
+  const yr=divYear, pre=yr==='all'?null:(d=>(d.date||'').slice(0,4)===yr);
+  renderList($('#divList'),base,divFilter,divCard,'$','股利紀錄',pre,yr==='all'?'':yr+' 年');
+  // 小計：跟著清單上實際看到的筆數走，台幣與美元分開加總（合併檢視可能兩者都有）
+  const f=divFilter.trim().toUpperCase();
+  const rows=base.filter(d=>(!pre||pre(d))&&(!f||(d.code||'').toUpperCase().includes(f)));
+  const el=$('#divSum');if(!el)return;
+  const twd=rows.reduce((s,d)=>s+(d.cur==='USD'?0:(+d.amt||0)),0);
+  const usd=rows.reduce((s,d)=>s+(d.cur==='USD'?(+d.amt||0):0),0);
+  const parts=[];if(twd)parts.push('NT$ '+money(twd));if(usd)parts.push('US$ '+fmt(usd,2));
+  el.style.display=rows.length?'':'none';
+  el.innerHTML=rows.length?`<span class="k">${yr==='all'?'全部年度':yr+' 年'}${f?'・'+f:''} · ${rows.length} 筆</span><span class="v num">${parts.join('　＋　')||'—'}</span>`:'';
+}
 let lastRealized=[];
 function realizedCard(r){
   const nm=r.name||nameForCode(r.code);
