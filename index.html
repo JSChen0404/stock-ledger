@@ -697,10 +697,21 @@ function splitFactor(code,exDate){
 // 這筆現金股利的 amt 應該是多少。
 // 約定：per 一律存「當年原始回報值」（未還原分割），除以 splitFactor 才是調整後股數的基準。
 // 這樣分割沒還原的舊紀錄也驗得出來——若把 per 存成已調整值，amt=per×股數 會自洽而驗不出。
+// 美股股利帳上一律記「扣繳後淨額」（見 fetchUsDividends）。
+// 優先用該筆自己記下的扣繳率（auto 抓時存了 gross/wht），沒有才退回設定值——
+// 這樣改過設定的扣繳率，也不會把舊紀錄全部誤判成不符。
+function whtRate(d){
+  if(d&&d.gross>0&&d.wht!=null)return Math.min(1,Math.max(0,d.wht/d.gross));
+  return Math.min(100,Math.max(0,parseFloat(state.settings.wht)||0))/100;
+}
 function expectedDivAmt(d){
   if(!d||!d.per||!d.date)return null;
-  return Math.round(sharesHeldBefore(d.code,d.date)*d.per/splitFactor(d.code,d.date));
+  const gross=sharesHeldBefore(d.code,d.date)*d.per/splitFactor(d.code,d.date);
+  // 美元留到分（帳上 amt 也是 2 位小數）且要扣預扣稅；台幣無預扣、記整數。
+  return d.cur==='USD'?+(gross*(1-whtRate(d))).toFixed(2):Math.round(gross);
 }
+// 股利金額的顯示格式（美元帶 $ 與分，台幣整數）
+const divMoney=(d,v)=>d&&d.cur==='USD'?'$'+fmt(v,2):money(v);
 
 /* ---------- render ---------- */
 /* 依市場算出一組摘要數字。台股/美股用各自幣別；'all' 把美元資產換成台幣並拆出匯差。 */
@@ -1051,8 +1062,8 @@ function divCard(d){
   return `<div class="card"><div class="tx">
     <div class="tag div">息</div>
     <div class="info"><div class="t1">${d.code} <span style="color:var(--muted);font-weight:400">${d.name||nameForCode(d.code)}</span>${d.cur==='USD'?'<span class="cur usd">USD</span>':''}</div>
-      <div class="t2">${d.date||''}${d.per?' · 每股 '+fmt(d.per,2):''}${sf>1?' <span style="color:var(--faint)">(分割前基準 ÷'+sf+')</span>':''}</div>
-      ${off?`<div class="t2 divwarn">⚠ 金額與 ${fmt(sharesHeldBefore(d.code,d.date))} 股不符，應為 ${money(exp)}
+      <div class="t2">${d.date||''}${d.per?' · 每股 '+(d.cur==='USD'?'$'+fmt(d.per,4):fmt(d.per,2)):''}${sf>1?' <span style="color:var(--faint)">(分割前基準 ÷'+sf+')</span>':''}</div>
+      ${off?`<div class="t2 divwarn">⚠ 金額與 ${fmt(sharesHeldBefore(d.code,d.date),d.cur==='USD'?2:0)} 股不符，應為 ${divMoney(d,exp)}
         <button class="fixdiv" data-fixdiv="${d.id}">改成這個</button></div>`:''}</div>
     <div class="amt"><div class="num" style="color:var(--gold)">${d.cur==='USD'?'+$'+fmt(d.amt,2):'+'+money(d.amt)}</div></div>
     <button class="del" data-del="div" data-id="${d.id}">刪除</button>
@@ -1074,7 +1085,7 @@ function bindDeletes(){document.querySelectorAll('[data-del]').forEach(b=>b.oncl
 document.querySelectorAll('[data-fixdiv]').forEach(b=>b.onclick=e=>{
   e.stopPropagation();const d=state.div.find(x=>x.id===+b.dataset.fixdiv);if(!d)return;
   const exp=expectedDivAmt(d);if(exp==null)return;
-  askConfirm(`把 ${d.code} ${d.date} 的股利從 ${money(d.amt)} 改成 ${money(exp)}？`,()=>{
+  askConfirm(`把 ${d.code} ${d.date} 的股利從 ${divMoney(d,d.amt)} 改成 ${divMoney(d,exp)}？`,()=>{
     d.amt=exp;save();render();toast('已重算');
   });
 });}
@@ -1245,23 +1256,32 @@ function recalcDiv(){
   if(dMode!=='pershare'){return;}
   const code=$('#dCode').value.trim().toUpperCase(),per=parseFloat($('#dPer').value),date=$('#dDate').value;
   if(!code||!per||!date){$('#divCalc').textContent='填代號、除息日、每股配息後自動計算';return;}
-  const sh=sharesHeldBefore(code,date);
-  $('#divCalc').innerHTML=`除息日前持有 <b>${fmt(sh)}</b> 股 × <b>${fmt(per,2)}</b> ＝ 股利 <b>${money(sh*per)}</b>`;
+  const sh=sharesHeldBefore(code,date),us=isUS(marketOfCode(code));
+  const eff=per/splitFactor(code,date),g=sh*eff;
+  if(us){const r=whtRate(null),net=g*(1-r);
+    $('#divCalc').innerHTML=`除息日前持有 <b>${fmt(sh,2)}</b> 股 × <b>${fmt(per,4)}</b> ＝ 毛額 <b>$${fmt(g,2)}</b>`
+      +`<br>扣繳 ${fmt(r*100,0)}% 後實收 <b>$${fmt(net,2)}</b>`;
+  }else $('#divCalc').innerHTML=`除息日前持有 <b>${fmt(sh)}</b> 股 × <b>${fmt(per,2)}</b> ＝ 股利 <b>${money(g)}</b>`;
 }
 ['dCode','dPer','dDate'].forEach(i=>$('#'+i).addEventListener('input',recalcDiv));
 $('#divSave').onclick=()=>{
   const code=$('#dCode').value.trim().toUpperCase(),date=$('#dDate').value;
   if(!code){toast('請填股票代號');return;}
-  let amt;
+  let amt,usGross=null,usWht=null;
   if(dMode==='pershare'){const per=parseFloat($('#dPer').value);const sh=sharesHeldBefore(code,date);
     if(!per){toast('請填每股配息');return;}
     if(!sh){toast('該除息日前查無持股');return;}
     // per 一律是「當年原始回報值」，除以分割係數才是帳上調整後股數的基準（與 expectedDivAmt 同）
     const eff=per/splitFactor(code,date);
-    amt=isUS(marketOfCode(code))?+(sh*eff).toFixed(2):Math.round(sh*eff);
+    if(isUS(marketOfCode(code))){
+      // 與 fetchUsDividends 一致：帳上記扣繳後淨額，並留下 gross/wht 供健檢比對
+      const g=sh*eff,r=whtRate(null);
+      amt=+(g*(1-r)).toFixed(2);usGross=+g.toFixed(2);usWht=+(g-amt).toFixed(2);
+    }else amt=Math.round(sh*eff);
   }else{amt=parseFloat($('#dAmt').value);if(!amt){toast('請填股利總額');return;}}
   const rec={id:Date.now(),code,name:$('#dName').value.trim(),date,amt};
-  if(isUS(marketOfCode(code)))rec.cur='USD';          // 美股股利以美元記，進美元現金
+  if(isUS(marketOfCode(code))){rec.cur='USD';         // 美股股利以美元記，進美元現金
+    if(usGross!=null){rec.gross=usGross;rec.wht=usWht;}}
   state.div.push(rec);
   save();render();$('#divModal').classList.remove('show');toast('股利已儲存（已內扣成本）');
 };
