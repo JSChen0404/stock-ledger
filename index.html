@@ -706,7 +706,8 @@ function whtRate(d){
 }
 function expectedDivAmt(d){
   if(!d||!d.per||!d.date)return null;
-  const gross=sharesHeldBefore(d.code,d.date)*d.per/splitFactor(d.code,d.date);
+  const ex=d.ex||d.date;                     // 美股 auto 紀錄以發放日入帳、另存除息日 ex；持股基準要看除息日
+  const gross=sharesHeldBefore(d.code,ex)*d.per/splitFactor(d.code,ex);
   // 美元留到分（帳上 amt 也是 2 位小數）且要扣預扣稅；台幣無預扣、記整數。
   return d.cur==='USD'?+(gross*(1-whtRate(d))).toFixed(2):Math.round(gross);
 }
@@ -1058,7 +1059,7 @@ function divCard(d){
   // 或抓股利時該期的買進還沒入帳——兩者都不會報錯，只會讓報酬率安靜地偏高。
   const exp=expectedDivAmt(d);
   const off=(exp!=null&&exp>0&&Math.abs((d.amt||0)/exp-1)>0.02);
-  const sf=splitFactor(d.code,d.date);
+  const sf=splitFactor(d.code,d.ex||d.date);
   return `<div class="card"><div class="tx">
     <div class="tag div">息</div>
     <div class="info"><div class="t1">${d.code} <span style="color:var(--muted);font-weight:400">${d.name||nameForCode(d.code)}</span>${d.cur==='USD'?'<span class="cur usd">USD</span>':''}</div>
@@ -1412,47 +1413,72 @@ $('#refreshBtn').onclick=()=>refreshPrices(false);
    否則只記股利會壓低成本卻不增加股數，反而算錯。
    去重：既有紀錄用「配發日」、Yahoo 用「除息日」，日期會差幾天到一個月，
    所以同代號 ±45 天內已有紀錄就視為同一次，避免整段歷史被重複加入。            */
+// 美股股利入帳日採「發放日」（與券商對帳單一致），不是 Yahoo 給的除息日：
+// 券商在發放日才把現金／DRIP 零碎股入帳，成交價也是發放日價格。若照除息日記，
+// 每季股數都會跟券商差一點，而且除息後尚未發放的會被提前入帳。
+// 除息→發放的天數各檔不同（VOO 約 3 天、MSFT/NVDA 約 3 週、TSM ADR 約 4 週），
+// 所以先從該檔既有紀錄（券商對帳單手動輸入的都是發放日）推算，沒有可參考的才用預設值。
+const US_PAY_LAG_DEFAULT=21;
+function addDays(d,n){const t=new Date(_dayNum(d)+n*864e5);return t.toISOString().slice(0,10);}
+// 推算某檔「除息日 → 發放日」的天數：既有紀錄有 ex 就直接用；沒有的（手動輸入）配對最近一個 ≤ 入帳日、且 100 天內的除息日
+function usPayLag(code,exDates){
+  const lags=[];
+  state.div.forEach(x=>{
+    if(x.code!==code||!x.date)return;
+    if(x.ex){const l=Math.round((_dayNum(x.date)-_dayNum(x.ex))/864e5);if(l>=0)lags.push(l);return;}
+    if(x.auto)return;                                       // 舊版 auto 紀錄以除息日入帳，lag=0 沒參考價值
+    let best=null;
+    for(const ex of exDates){const l=(_dayNum(x.date)-_dayNum(ex))/864e5;if(l>=0&&l<=100&&(best==null||l<best))best=l;}
+    if(best!=null)lags.push(Math.round(best));
+  });
+  if(!lags.length)return US_PAY_LAG_DEFAULT;
+  lags.sort((a,b)=>a-b);return lags[Math.floor(lags.length/2)];  // 中位數，抗單筆異常
+}
 async function fetchUsDividends(codes){
   const wht=Math.min(100,Math.max(0,parseFloat(state.settings.wht)||0))/100;
   const drip=(state.settings.drip==null||state.settings.drip!=='0');
   const today=todayStr();
-  let addDiv=0,addDrip=0,fail=0;
+  let addDiv=0,addDrip=0,fail=0,pending=0;
   for(const code of codes){
     try{
       const j=await fetchJson(`${YH}${encodeURIComponent(code)}?interval=1d&range=10y&events=div`);
       const R=j&&j.chart&&j.chart.result&&j.chart.result[0];
       const ev=R&&R.events&&R.events.dividends;
       if(!ev)continue;
-      // 收盤價序列，用來算 DRIP 的成交價
+      // 收盤價序列，用來算 DRIP 的成交價：取入帳日當天或之後最近一個收盤；都沒有（當天尚未收盤）就退回之前最近一個
       const ts=(R.timestamp||[]),cl=((R.indicators&&R.indicators.quote&&R.indicators.quote[0]&&R.indicators.quote[0].close)||[]);
-      const closeOn=d=>{const n=_dayNum(d);let best=null,bd=Infinity;
+      const closeOn=d=>{const n=_dayNum(d);let best=null,bd=Infinity,prev=null,pd=Infinity;
         for(let i=0;i<ts.length;i++){const c=cl[i];if(c==null)continue;
-          const diff=ts[i]*1000-n;if(diff>=0&&diff<bd){bd=diff;best=c;}}
-        return best;};
+          const diff=ts[i]*1000-n;
+          if(diff>=0&&diff<bd){bd=diff;best=c;}else if(diff<0&&-diff<pd){pd=-diff;prev=c;}}
+        return best!=null?best:prev;};
+      const events=Object.values(ev).map(e=>({ex:new Date(e.date*1000).toISOString().slice(0,10),per:+e.amount})).filter(e=>e.per>0).sort((a,b)=>a.ex.localeCompare(b.ex));
+      const lag=usPayLag(code,events.map(e=>e.ex));
       const mine=state.div.filter(x=>x.code===code&&x.date);
-      for(const e of Object.values(ev).sort((a,b)=>a.date-b.date)){
-        const ex=new Date(e.date*1000).toISOString().slice(0,10);
-        if(ex>today)continue;
-        const per=+e.amount;if(!(per>0))continue;
-        const sh=sharesHeldBefore(code,ex);if(!(sh>0))continue;
-        // ±45 天內已有同代號紀錄 → 視為已入帳
-        if(mine.some(x=>Math.abs(_dayNum(x.date)-_dayNum(ex))<=45*864e5))continue;
-        const gross=sh*per, net=+(gross*(1-wht)).toFixed(2);
+      for(const e of events){
+        const ex=e.ex;if(ex>today)continue;
+        const sh=sharesHeldBefore(code,ex);if(!(sh>0))continue;     // 持股數看除息日前
+        if(mine.some(x=>x.ex===ex))continue;                          // 同一除息日已入帳
+        const pay=addDays(ex,lag);
+        if(pay>today){pending++;continue;}                            // 已除息但券商還沒發放 → 先不記
+        // 入帳日 ±45 天內已有同代號紀錄（手動輸入的發放日、或舊版以除息日記的）→ 視為已入帳
+        if(mine.some(x=>Math.abs(_dayNum(x.date)-_dayNum(pay))<=45*864e5))continue;
+        const gross=sh*e.per, net=+(gross*(1-wht)).toFixed(2);
         if(!(net>0))continue;
-        state.div.push({id:Date.now()+Math.floor(Math.random()*1e6),code,name:'',date:ex,
-          amt:net,per:+per.toFixed(6),cur:'USD',gross:+gross.toFixed(2),wht:+(gross-net).toFixed(2),auto:true});
-        mine.push({code,date:ex});addDiv++;
+        state.div.push({id:Date.now()+Math.floor(Math.random()*1e6),code,name:'',date:pay,ex,
+          amt:net,per:+e.per.toFixed(6),cur:'USD',gross:+gross.toFixed(2),wht:+(gross-net).toFixed(2),auto:true});
+        mine.push({code,date:pay,ex});addDiv++;
         if(drip){
-          const px=closeOn(ex);
+          const px=closeOn(pay);
           if(px>0){const q=+(net/px).toFixed(5);
             if(q>0)state.tx.push({id:Date.now()+Math.floor(Math.random()*1e6),side:'buy',kind:'drip',
-              code,name:'',market:'us',date:ex,qty:q,price:+px.toFixed(4),fee:0,tax:0,auto:true});
+              code,name:'',market:'us',date:pay,qty:q,price:+px.toFixed(4),fee:0,tax:0,auto:true});
             addDrip++;}
         }
       }
     }catch(e){fail++;}
   }
-  return{addDiv,addDrip,fail};
+  return{addDiv,addDrip,fail,pending};
 }
 
 /* ---------- 自動抓取股利（FinMind） ---------- */
@@ -1466,13 +1492,13 @@ async function autoFetchDividends(){
   const btn=$('#autoDivBtn');const old=btn.textContent;btn.textContent='抓取中…';btn.disabled=true;
   const exCash=new Set(state.div.map(d=>d.code+'@'+d.date));
   const exStockSet=new Set(state.tx.filter(t=>t.auto&&t.kind==='stockdiv').map(t=>t.code+'@'+t.date));
-  let addCash=0,addStock=0,fail=0,usDiv=0,usDrip=0;
+  let addCash=0,addStock=0,fail=0,usDiv=0,usDrip=0,usPending=0;
   const today=todayStr();  // 只計算已除息（≤今天）的事件，不算未來
   // 美股走 Yahoo（FinMind 沒有美股資料）
   if(usCodes.length&&cloudOn()){
     btn.textContent='抓美股股利…';
     const u=await fetchUsDividends(usCodes);
-    usDiv=u.addDiv;usDrip=u.addDrip;fail+=u.fail;
+    usDiv=u.addDiv;usDrip=u.addDrip;usPending=u.pending||0;fail+=u.fail;
     btn.textContent='抓取中…';
   }
   for(const code of codes){
@@ -1523,6 +1549,7 @@ async function autoFetchDividends(){
   btn.textContent=old;btn.disabled=false;
   const parts=[];if(addCash)parts.push(`現金股利 ${addCash} 筆`);if(addStock)parts.push(`配股 ${addStock} 次`);
   if(usDiv)parts.push(`美股股利 ${usDiv} 筆${usDrip?`（含再投入 ${usDrip} 筆）`:''}`);
+  if(usPending)parts.push(`${usPending} 筆美股已除息未發放、暫不入帳`);
   if(parts.length)toast(`自動帶入 ${parts.join('、')}${fail?`（${fail} 檔失敗）`:''}`);
   else if(fail)toast('讀取被擋下，請在設定填代理或稍後再試');
   else toast('沒有可帶入的新股利');
